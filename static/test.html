@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API & WebSocket Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        .panel {
+            flex: 1;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            background-color: #f9f9f9;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .output {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            background-color: #fff;
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .status {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        .connected {
+            color: green;
+        }
+        .disconnected {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <h1>API & WebSocket Test</h1>
+    
+    <div class="container">
+        <!-- WebSocket Panel -->
+        <div class="panel">
+            <h2>WebSocket Test</h2>
+            <div class="form-group">
+                <label for="ws-project-id">Project ID:</label>
+                <input type="text" id="ws-project-id" value="test-project">
+            </div>
+            <div class="form-group">
+                <label for="ws-message">Message:</label>
+                <input type="text" id="ws-message" placeholder="Type a message...">
+            </div>
+            <div class="form-group">
+                <button id="ws-connect">Connect</button>
+                <button id="ws-send" disabled>Send</button>
+                <button id="ws-disconnect" disabled>Disconnect</button>
+            </div>
+            <div class="status disconnected" id="ws-status">Disconnected</div>
+            <div class="form-group">
+                <label for="ws-output">Output:</label>
+                <div class="output" id="ws-output"></div>
+            </div>
+        </div>
+        
+        <!-- REST API Panel -->
+        <div class="panel">
+            <h2>REST API Test</h2>
+            <div class="form-group">
+                <label for="api-endpoint">Endpoint:</label>
+                <select id="api-endpoint">
+                    <option value="/api/projects">POST /api/projects (Create Project)</option>
+                    <option value="/api/projects/{id}">GET /api/projects/{id} (Get Project)</option>
+                    <option value="/api/users/{id}">GET /api/users/{id} (Get User)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="api-params">Parameters:</label>
+                <textarea id="api-params" rows="5" placeholder='{"id": "user-id-here"}'></textarea>
+            </div>
+            <div class="form-group">
+                <button id="api-send">Send Request</button>
+            </div>
+            <div class="form-group">
+                <label for="api-output">Response:</label>
+                <div class="output" id="api-output"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket variables
+        let socket = null;
+        const wsProjectIdInput = document.getElementById('ws-project-id');
+        const wsMessageInput = document.getElementById('ws-message');
+        const wsConnectBtn = document.getElementById('ws-connect');
+        const wsSendBtn = document.getElementById('ws-send');
+        const wsDisconnectBtn = document.getElementById('ws-disconnect');
+        const wsStatusDiv = document.getElementById('ws-status');
+        const wsOutputDiv = document.getElementById('ws-output');
+
+        // REST API variables
+        const apiEndpointSelect = document.getElementById('api-endpoint');
+        const apiParamsTextarea = document.getElementById('api-params');
+        const apiSendBtn = document.getElementById('api-send');
+        const apiOutputDiv = document.getElementById('api-output');
+
+        // Set default parameter values based on selected endpoint
+        apiEndpointSelect.addEventListener('change', () => {
+            const endpoint = apiEndpointSelect.value;
+            if (endpoint === '/api/projects') {
+                apiParamsTextarea.value = JSON.stringify({
+                    prompt: "Create a simple hello world app",
+                    model: "gpt-4",
+                    temperature: 0.1
+                }, null, 2);
+            } else if (endpoint === '/api/projects/{id}') {
+                apiParamsTextarea.value = JSON.stringify({
+                    id: "project-id-here"
+                }, null, 2);
+            } else if (endpoint === '/api/users/{id}') {
+                apiParamsTextarea.value = JSON.stringify({
+                    id: "user-id-here"
+                }, null, 2);
+            }
+        });
+
+        // Trigger change event to set initial values
+        apiEndpointSelect.dispatchEvent(new Event('change'));
+
+        // WebSocket functions
+        wsConnectBtn.addEventListener('click', () => {
+            const projectId = wsProjectIdInput.value.trim();
+            if (!projectId) {
+                alert('Please enter a project ID');
+                return;
+            }
+
+            // Close existing connection if any
+            if (socket) {
+                socket.close();
+            }
+
+            // Create new WebSocket connection
+            socket = new WebSocket(`ws://${window.location.host}/ws/${projectId}`);
+
+            // Connection opened
+            socket.addEventListener('open', (event) => {
+                wsStatusDiv.textContent = 'Connected';
+                wsStatusDiv.className = 'status connected';
+                wsConnectBtn.disabled = true;
+                wsSendBtn.disabled = false;
+                wsDisconnectBtn.disabled = false;
+                logWsMessage('Connection established');
+            });
+
+            // Listen for messages
+            socket.addEventListener('message', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    logWsMessage(`Received: ${JSON.stringify(data, null, 2)}`);
+                } catch (e) {
+                    logWsMessage(`Received: ${event.data}`);
+                }
+            });
+
+            // Connection closed
+            socket.addEventListener('close', (event) => {
+                wsStatusDiv.textContent = 'Disconnected';
+                wsStatusDiv.className = 'status disconnected';
+                wsConnectBtn.disabled = false;
+                wsSendBtn.disabled = true;
+                wsDisconnectBtn.disabled = true;
+                logWsMessage('Connection closed');
+            });
+
+            // Connection error
+            socket.addEventListener('error', (event) => {
+                wsStatusDiv.textContent = 'Error';
+                wsStatusDiv.className = 'status disconnected';
+                logWsMessage('WebSocket error');
+            });
+        });
+
+        // Send WebSocket message
+        wsSendBtn.addEventListener('click', () => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                alert('WebSocket is not connected');
+                return;
+            }
+
+            const message = wsMessageInput.value.trim();
+            if (!message) {
+                alert('Please enter a message');
+                return;
+            }
+
+            // Send as a chat message
+            const chatMessage = {
+                type: 'chat',
+                content: message
+            };
+
+            socket.send(JSON.stringify(chatMessage));
+            logWsMessage(`Sent: ${JSON.stringify(chatMessage, null, 2)}`);
+            wsMessageInput.value = '';
+        });
+
+        // Disconnect WebSocket
+        wsDisconnectBtn.addEventListener('click', () => {
+            if (socket) {
+                socket.close();
+            }
+        });
+
+        // Log WebSocket message to output div
+        function logWsMessage(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            wsOutputDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            wsOutputDiv.scrollTop = wsOutputDiv.scrollHeight;
+        }
+
+        // Send REST API request
+        apiSendBtn.addEventListener('click', async () => {
+            try {
+                let endpoint = apiEndpointSelect.value;
+                let method = 'GET';
+                let body = null;
+
+                // Parse parameters
+                const params = JSON.parse(apiParamsTextarea.value || '{}');
+
+                // Determine method and prepare request
+                if (endpoint === '/api/projects') {
+                    method = 'POST';
+                    body = JSON.stringify({
+                        prompt: params.prompt || "Create a simple hello world app",
+                        model: params.model || "gpt-4",
+                        temperature: params.temperature || 0.1
+                    });
+                } else if (endpoint.includes('{id}')) {
+                    // Replace {id} with actual ID
+                    endpoint = endpoint.replace('{id}', params.id || 'missing-id');
+                }
+
+                // Display request details
+                apiOutputDiv.innerHTML = `Sending ${method} request to ${endpoint}...\n`;
+                if (body) {
+                    apiOutputDiv.innerHTML += `Request body: ${body}\n`;
+                }
+
+                // Send request
+                const response = await fetch(endpoint, {
+                    method,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body
+                });
+
+                // Parse and display response
+                const data = await response.json();
+                apiOutputDiv.innerHTML += `\nResponse (${response.status} ${response.statusText}):\n${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                apiOutputDiv.innerHTML += `\nError: ${error.message}`;
+            }
+        });
+    </script>
+</body>
+</html> 
