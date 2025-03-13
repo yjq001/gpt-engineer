@@ -25,8 +25,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(LOG_LEVELS.get(LOG_LEVEL, logging.INFO))
 logger.debug("WebSocket API 模块初始化")
 
-from services import project_service
-
 # Create router
 router = APIRouter(tags=["WebSocket API"])
 
@@ -106,7 +104,7 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
         
         # Check if project exists and send project info
         try:
-            project = project_service.get_project(project_id)
+            project = 1
             if project:
                 await websocket.send_json({
                     "type": "project_info",
@@ -127,7 +125,10 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
             
             # Process message using service
             try:
-                await project_service.handle_chat_message(websocket, project_id, data)
+                await websocket.send_json({
+                "type": "error",
+                "message": f"获取项目信息时出错: {str(e)}"
+            })
             except Exception as e:
                 logger.error(f"处理聊天消息时出错: {str(e)}")
                 await websocket.send_json({

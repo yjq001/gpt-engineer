@@ -1,4 +1,5 @@
 from peewee import PostgresqlDatabase, Model, SqliteDatabase
+from playhouse.pool import PooledPostgresqlDatabase
 import os
 from dotenv import load_dotenv
 from fastapi import Depends
@@ -27,6 +28,13 @@ logger.debug("数据库模块初始化")
 # 数据库连接 URL
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://etl:gf_etl_2023@etlpg.test.db.gf.com.cn:15432/etl")
 
+# 连接池配置
+DB_POOL_MAX_CONNECTIONS = int(os.getenv("DB_POOL_MAX_CONNECTIONS", "5"))
+DB_POOL_STALE_TIMEOUT = int(os.getenv("DB_POOL_STALE_TIMEOUT", "300"))  # 5分钟
+DB_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "1800"))  # 30分钟
+
+logger.debug(f"数据库连接池配置: 最大连接数={DB_POOL_MAX_CONNECTIONS}, 超时时间={DB_POOL_STALE_TIMEOUT}秒, 回收时间={DB_POOL_RECYCLE}秒")
+
 # 创建 Peewee 数据库实例
 db = None
 
@@ -51,17 +59,22 @@ try:
                     db_user = db_auth[0]
                     db_password = db_auth[1]
                     
-                    # 创建 Peewee 数据库实例
-                    logger.info(f"创建 PostgreSQL 数据库连接: {db_host}:{db_port}/{db_name}")
+                    # 创建 Peewee 数据库连接池
+                    logger.info(f"创建 PostgreSQL 数据库连接池: {db_host}:{db_port}/{db_name}")
                     logger.debug(f"用户名: {db_user}, 密码: {'*' * len(db_password)}")
-                    db = PostgresqlDatabase(
+                    
+                    # 使用连接池
+                    db = PooledPostgresqlDatabase(
                         db_name,
                         user=db_user,
                         password=db_password,
                         host=db_host,
                         port=db_port,
-                        connect_timeout=5  # 添加连接超时
+                        max_connections=DB_POOL_MAX_CONNECTIONS,
+                        stale_timeout=DB_POOL_STALE_TIMEOUT,
+                        timeout=5,  # 连接超时时间
                     )
+                    logger.info(f"PostgreSQL 连接池已创建，最大连接数: {DB_POOL_MAX_CONNECTIONS}")
                 else:
                     logger.error("数据库 URL 格式错误: 无法解析用户名和密码")
             else:
@@ -142,3 +155,14 @@ def init_db():
         if not db.is_closed():
             db.close()
             logger.info("数据库连接已关闭")
+
+# 连接池状态监控函数
+def get_pool_status():
+    """获取连接池状态信息"""
+    if hasattr(db, '_in_use') and hasattr(db, '_connections'):
+        return {
+            "in_use": len(db._in_use),
+            "available": len(db._connections),
+            "max_connections": DB_POOL_MAX_CONNECTIONS
+        }
+    return {"error": "不是连接池数据库或无法获取连接池状态"}
