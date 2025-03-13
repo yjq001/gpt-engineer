@@ -6,6 +6,7 @@ from fastapi import Depends
 import logging
 import sys
 import time
+import urllib.parse
 
 # 加载环境变量
 load_dotenv()
@@ -27,6 +28,8 @@ logger.debug("数据库模块初始化")
 
 # 数据库连接 URL
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://etl:gf_etl_2023@etlpg.test.db.gf.com.cn:15432/etl")
+# 获取schema
+DB_SCHEMA = os.getenv("DB_SCHEMA", "easyllms")
 
 # 连接池配置
 DB_POOL_MAX_CONNECTIONS = int(os.getenv("DB_POOL_MAX_CONNECTIONS", "5"))
@@ -34,6 +37,7 @@ DB_POOL_STALE_TIMEOUT = int(os.getenv("DB_POOL_STALE_TIMEOUT", "300"))  # 5分�
 DB_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "1800"))  # 30分钟
 
 logger.debug(f"数据库连接池配置: 最大连接数={DB_POOL_MAX_CONNECTIONS}, 超时时间={DB_POOL_STALE_TIMEOUT}秒, 回收时间={DB_POOL_RECYCLE}秒")
+logger.info(f"使用数据库schema: {DB_SCHEMA}")
 
 # 创建 Peewee 数据库实例
 db = None
@@ -43,44 +47,30 @@ try:
     if DATABASE_URL.startswith("postgresql://"):
         logger.info(f"尝试连接到 PostgreSQL 数据库: {DATABASE_URL}")
         
-        # 解析数据库 URL 获取连接参数
-        db_parts = DATABASE_URL.replace("postgresql://", "").split("/")
-        if len(db_parts) >= 2:
-            db_name = db_parts[1]
-            db_auth_host = db_parts[0].split("@")
-            if len(db_auth_host) >= 2:
-                db_host_port = db_auth_host[1].split(":")
-                db_host = db_host_port[0]
-                # 检查是否指定了端口
-                db_port = int(db_host_port[1]) if len(db_host_port) > 1 else 5432
-                
-                db_auth = db_auth_host[0].split(":")
-                if len(db_auth) >= 2:
-                    db_user = db_auth[0]
-                    db_password = db_auth[1]
-                    
-                    # 创建 Peewee 数据库连接池
-                    logger.info(f"创建 PostgreSQL 数据库连接池: {db_host}:{db_port}/{db_name}")
-                    logger.debug(f"用户名: {db_user}, 密码: {'*' * len(db_password)}")
-                    
-                    # 使用连接池
-                    db = PooledPostgresqlDatabase(
-                        db_name,
-                        user=db_user,
-                        password=db_password,
-                        host=db_host,
-                        port=db_port,
-                        max_connections=DB_POOL_MAX_CONNECTIONS,
-                        stale_timeout=DB_POOL_STALE_TIMEOUT,
-                        timeout=5,  # 连接超时时间
-                    )
-                    logger.info(f"PostgreSQL 连接池已创建，最大连接数: {DB_POOL_MAX_CONNECTIONS}")
-                else:
-                    logger.error("数据库 URL 格式错误: 无法解析用户名和密码")
-            else:
-                logger.error("数据库 URL 格式错误: 无法解析主机")
-        else:
-            logger.error("数据库 URL 格式错误: 无法解析数据库名")
+        # 解析数据库URL
+        parsed_url = urllib.parse.urlparse(DATABASE_URL)
+        
+        # 获取数据库名称
+        db_name = parsed_url.path.lstrip('/')
+        
+        # 获取用户名和密码
+        db_user = parsed_url.username
+        db_password = parsed_url.password
+        
+        # 获取主机和端口
+        db_host = parsed_url.hostname
+        db_port = parsed_url.port or 5432
+        
+        # 使用标准的PostgresqlDatabase
+        db = PostgresqlDatabase(
+            db_name,
+            user=db_user,
+            password=db_password,
+            host=db_host,
+            port=db_port,
+            options=f'-c search_path={DB_SCHEMA}'  # 设置schema
+        )
+        logger.info(f"PostgreSQL 数据库连接已创建")
     else:
         logger.error(f"不支持的数据库 URL 格式: {DATABASE_URL}")
 except Exception as e:
@@ -103,66 +93,33 @@ class BaseModel(Model):
 # 获取数据库连接的依赖函数
 async def get_db():
     try:
+        logger.debug("尝试获取数据库连接")
         if db.is_closed():
+            logger.debug("数据库连接已关闭，尝试重新连接")
             db.connect()
             logger.debug("数据库连接已打开")
+        else:
+            logger.debug("数据库连接已存在")
         yield
     except Exception as e:
-        logger.error(f"连接数据库时出错: {str(e)}")
+        logger.error(f"连接数据库时出错: {str(e)}", exc_info=True)
+        raise
     finally:
         if not db.is_closed():
+            logger.debug("关闭数据库连接")
             db.close()
             logger.debug("数据库连接已关闭")
 
-# 初始化数据库表
-def init_db():
-    try:
-        # 尝试连接数据库
-        if db.is_closed():
-            db.connect()
-            logger.info("数据库连接已建立")
-        
-        # 测试执行简单查询
-        try:
-            logger.debug("执行测试查询: SELECT 1")
-            cursor = db.execute_sql('SELECT 1')
-            result = cursor.fetchone()
-            if result and result[0] == 1:
-                logger.info("数据库查询测试成功")
-            else:
-                logger.warning("数据库查询测试返回意外结果")
-        except Exception as query_err:
-            logger.error(f"数据库查询测试失败: {str(query_err)}")
-            logger.warning("将使用基本功能，但数据库相关功能可能不可用")
-            return
-            
-        # 导入模型并创建表
-        try:
-            from db.models import User
-            logger.debug("创建数据库表: User")
-            db.create_tables([User], safe=True)
-            logger.info("数据库表初始化成功")
-        except ImportError as import_err:
-            logger.error(f"导入模型时出错: {str(import_err)}")
-        except Exception as table_err:
-            logger.error(f"创建表时出错: {str(table_err)}")
-        
-    except Exception as e:
-        logger.error(f"初始化数据库时出错: {str(e)}")
-        logger.warning("应用程序将继续运行，但数据库功能可能不可用")
-    finally:
-        # 确保关闭连接
-        if not db.is_closed():
-            db.close()
-            logger.info("数据库连接已关闭")
-
 # 连接池状态监控函数
 def get_pool_status():
-    """获取连接池状态信息"""
-    if hasattr(db, '_in_use') and hasattr(db, '_connections'):
+    """获取数据库连接状态信息"""
+    try:
+        is_connected = not db.is_closed() if db else False
         return {
-            "in_use": len(db._in_use),
-            "available": len(db._connections),
-            "max_connections": DB_POOL_MAX_CONNECTIONS
+            "is_connected": is_connected,
+            "database_type": type(db).__name__ if db else "None",
+            "schema": DB_SCHEMA
         }
-    return {"error": "不是连接池数据库或无法获取连接池状态"}
+    except Exception as e:
+        logger.error(f"获取数据库状态时出错: {str(e)}")
+        return {"error": f"获取数据库状态时出错: {str(e)}"}

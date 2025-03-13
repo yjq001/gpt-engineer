@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 logger.setLevel(LOG_LEVELS.get(LOG_LEVEL, logging.INFO))
 logger.debug("WebSocket API 模块初始化")
 
+# 移除对project_service的导入，因为该模块不存在
+# from services import project_service
+
 # Create router
 router = APIRouter(tags=["WebSocket API"])
 

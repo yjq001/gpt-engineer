@@ -58,15 +58,6 @@ logger.info("已添加当前目录到Python路径")
 from routes.rest_api import router as rest_router
 from routes.websocket_api import router as websocket_router
 
-# Initialize database tables with error handling
-try:
-    from db.database import init_db
-    init_db()
-    logger.info("数据库初始化完成")
-except Exception as e:
-    logger.error(f"警告: 数据库初始化失败: {str(e)}")
-    logger.warning("应用程序将继续运行，但数据库功能可能不可用。")
-
 # 创建FastAPI应用
 app = FastAPI(
     title="GPT-Engineer Web Interface",
