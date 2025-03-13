@@ -61,16 +61,20 @@ try:
         db_host = parsed_url.hostname
         db_port = parsed_url.port or 5432
         
-        # 使用标准的PostgresqlDatabase
-        db = PostgresqlDatabase(
+        # 使用连接池
+        db = PooledPostgresqlDatabase(
             db_name,
             user=db_user,
             password=db_password,
             host=db_host,
             port=db_port,
-            options=f'-c search_path={DB_SCHEMA}'  # 设置schema
+            options=f'-c search_path={DB_SCHEMA}',  # 设置schema
+            max_connections=DB_POOL_MAX_CONNECTIONS,
+            stale_timeout=DB_POOL_STALE_TIMEOUT,
+            timeout=5,  # 连接超时时间
+            autocommit=True  # 启用自动提交
         )
-        logger.info(f"PostgreSQL 数据库连接已创建")
+        logger.info(f"PostgreSQL 连接池已创建，最大连接数: {DB_POOL_MAX_CONNECTIONS}, 自动提交: 已启用")
     else:
         logger.error(f"不支持的数据库 URL 格式: {DATABASE_URL}")
 except Exception as e:
@@ -112,14 +116,25 @@ async def get_db():
 
 # 连接池状态监控函数
 def get_pool_status():
-    """获取数据库连接状态信息"""
+    """获取数据库连接池状态信息"""
     try:
         is_connected = not db.is_closed() if db else False
-        return {
+        status = {
             "is_connected": is_connected,
             "database_type": type(db).__name__ if db else "None",
             "schema": DB_SCHEMA
         }
+        
+        # 如果是连接池，添加连接池特定的信息
+        if isinstance(db, PooledPostgresqlDatabase) and hasattr(db, '_in_use') and hasattr(db, '_connections'):
+            status.update({
+                "in_use": len(db._in_use),
+                "available": len(db._connections),
+                "max_connections": DB_POOL_MAX_CONNECTIONS,
+                "autocommit": getattr(db, 'autocommit', True)  # 获取autocommit设置
+            })
+            
+        return status
     except Exception as e:
         logger.error(f"获取数据库状态时出错: {str(e)}")
         return {"error": f"获取数据库状态时出错: {str(e)}"}
