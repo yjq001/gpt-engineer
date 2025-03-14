@@ -7,6 +7,7 @@ import logging
 import sys
 import time
 import urllib.parse
+from utils import PeeweeLoggerMiddleware
 
 # 加载环境变量
 load_dotenv()
@@ -26,6 +27,10 @@ logging.basicConfig(level=LOG_LEVELS.get(LOG_LEVEL, logging.INFO))
 logger = logging.getLogger(__name__)
 logger.debug("数据库模块初始化")
 
+# 配置SQL日志
+sql_logger = logging.getLogger('sql')
+sql_logger.setLevel(LOG_LEVELS.get(LOG_LEVEL, logging.INFO))
+
 # 数据库连接 URL
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://etl:gf_etl_2023@etlpg.test.db.gf.com.cn:15432/etl")
 # 获取schema
@@ -36,8 +41,12 @@ DB_POOL_MAX_CONNECTIONS = int(os.getenv("DB_POOL_MAX_CONNECTIONS", "5"))
 DB_POOL_STALE_TIMEOUT = int(os.getenv("DB_POOL_STALE_TIMEOUT", "300"))  # 5分钟
 DB_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "1800"))  # 30分钟
 
+# SQL日志配置
+LOG_SQL = os.getenv("LOG_SQL", "true").lower() == "true"
+
 logger.debug(f"数据库连接池配置: 最大连接数={DB_POOL_MAX_CONNECTIONS}, 超时时间={DB_POOL_STALE_TIMEOUT}秒, 回收时间={DB_POOL_RECYCLE}秒")
 logger.info(f"使用数据库schema: {DB_SCHEMA}")
+logger.info(f"SQL日志记录: {'启用' if LOG_SQL else '禁用'}")
 
 # 创建 Peewee 数据库实例
 db = None
@@ -45,7 +54,7 @@ db = None
 try:
     # 根据数据库URL类型创建相应的数据库实例
     if DATABASE_URL.startswith("postgresql://"):
-        logger.info(f"尝试连接到 PostgreSQL 数据库: {DATABASE_URL}")
+        logger.debug(f"尝试连接到 PostgreSQL 数据库: {DATABASE_URL}")
         
         # 解析数据库URL
         parsed_url = urllib.parse.urlparse(DATABASE_URL)
@@ -74,7 +83,7 @@ try:
             timeout=5,  # 连接超时时间
             autocommit=True  # 启用自动提交
         )
-        logger.info(f"PostgreSQL 连接池已创建，最大连接数: {DB_POOL_MAX_CONNECTIONS}, 自动提交: 已启用")
+        logger.info(f"PostgreSQL 连接池已创建，最大连接数: {DB_POOL_MAX_CONNECTIONS}, 自动提交: {'已启用' if getattr(db, 'autocommit', True) else '已禁用'}")
     else:
         logger.error(f"不支持的数据库 URL 格式: {DATABASE_URL}")
 except Exception as e:
@@ -86,8 +95,14 @@ if db is None:
     db = SqliteDatabase(':memory:')
     logger.info("已创建 SQLite 内存数据库作为回退")
 
-# 不要使用自定义连接状态类，使用 Peewee 默认的连接状态管理
-# 这样可以避免 'PeeweeConnectionState' object has no attribute 'reset' 错误
+# 启用SQL日志记录
+if LOG_SQL and db is not None:
+    try:
+        # 创建SQL日志中间件
+        sql_logger_middleware = PeeweeLoggerMiddleware(db)
+        logger.info("SQL日志中间件已创建")
+    except Exception as e:
+        logger.error(f"创建SQL日志中间件时出错: {str(e)}")
 
 # 基础模型类
 class BaseModel(Model):

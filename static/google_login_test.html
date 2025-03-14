@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Login Test</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            width: 100%;
+            max-width: 600px;
+            margin-top: 50px;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .login-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+        .user-info {
+            margin-top: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+            width: 100%;
+            display: none;
+        }
+        .user-info h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .user-info img {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            margin-bottom: 15px;
+        }
+        .user-info-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .user-detail {
+            margin: 5px 0;
+            width: 100%;
+        }
+        .user-detail strong {
+            display: inline-block;
+            width: 100px;
+        }
+        .logout-btn {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #f44336;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .logout-btn:hover {
+            background-color: #d32f2f;
+        }
+        .token-container {
+            margin-top: 20px;
+            width: 100%;
+        }
+        .token-container textarea {
+            width: 100%;
+            height: 100px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            resize: vertical;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Google Login Test</h1>
+        
+        <div class="login-container">
+            <div id="g_id_onload"
+                data-client_id="237841517530-uthj15v6nmf77iio83fv6qtso3h0va94.apps.googleusercontent.com"
+                data-callback="handleCredentialResponse">
+            </div>
+            <div class="g_id_signin" data-type="standard"></div>
+            
+            <div style="margin-top: 20px; text-align: center;">
+                <p>Or use test token (DEV_MODE must be enabled):</p>
+                <button id="testLoginBtn" style="padding: 10px 20px; background-color: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer;">Test Login</button>
+            </div>
+        </div>
+        
+        <div id="userInfo" class="user-info">
+            <div class="user-info-content">
+                <img id="userPicture" src="" alt="User Profile Picture">
+                <div class="user-detail"><strong>Name:</strong> <span id="userName"></span></div>
+                <div class="user-detail"><strong>Email:</strong> <span id="userEmail"></span></div>
+                <div class="user-detail"><strong>User ID:</strong> <span id="userId"></span></div>
+                <div class="token-container">
+                    <p><strong>JWT Token:</strong></p>
+                    <textarea id="userToken" readonly></textarea>
+                </div>
+                <button id="logoutBtn" class="logout-btn">Logout</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Function to handle Google Sign-In response
+        async function handleCredentialResponse(response) {
+            try {
+                // Get the ID token from the response
+                const idToken = response.credential;
+                console.log("Received ID token from Google:", idToken.substring(0, 20) + "...");
+                
+                // 使用JSON格式发送请求
+                const requestData = { idToken: idToken };
+                console.log("Sending JSON data with idToken");
+                
+                // Send the ID token to your backend
+                const result = await fetch('/api/auth/google', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                
+                if (!result.ok) {
+                    const errorText = await result.text();
+                    console.error("Authentication failed with status:", result.status);
+                    console.error("Error response:", errorText);
+                    throw new Error(`HTTP error! Status: ${result.status}, Response: ${errorText}`);
+                }
+                
+                const data = await result.json();
+                console.log("Authentication successful:", data);
+                
+                // Store the JWT token in localStorage
+                localStorage.setItem('auth_token', data.token);
+                
+                // Display user information
+                displayUserInfo(data.user, data.token);
+            } catch (error) {
+                console.error('Authentication error:', error);
+                alert('Authentication failed: ' + error.message);
+            }
+        }
+        
+        // Function to display user information
+        function displayUserInfo(user, token) {
+            document.getElementById('userName').textContent = user.name || 'N/A';
+            document.getElementById('userEmail').textContent = user.email || 'N/A';
+            document.getElementById('userId').textContent = user.id || 'N/A';
+            document.getElementById('userToken').value = token;
+            
+            if (user.picture) {
+                document.getElementById('userPicture').src = user.picture;
+            } else {
+                document.getElementById('userPicture').src = 'https://via.placeholder.com/100?text=No+Image';
+            }
+            
+            document.getElementById('userInfo').style.display = 'block';
+        }
+        
+        // Check if user is already logged in on page load
+        document.addEventListener('DOMContentLoaded', async () => {
+            const token = localStorage.getItem('auth_token');
+            
+            if (token) {
+                try {
+                    const response = await fetch('/api/auth/user', {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        displayUserInfo(data.user, token);
+                    } else {
+                        // Token is invalid or expired, remove it
+                        localStorage.removeItem('auth_token');
+                    }
+                } catch (error) {
+                    console.error('Error fetching user info:', error);
+                    localStorage.removeItem('auth_token');
+                }
+            }
+        });
+        
+        // Logout function
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            localStorage.removeItem('auth_token');
+            document.getElementById('userInfo').style.display = 'none';
+            
+            // Reload the page to reset the Google Sign-In button
+            window.location.reload();
+        });
+        
+        // Test login function (for development only)
+        document.getElementById('testLoginBtn').addEventListener('click', async () => {
+            try {
+                console.log("Using test token for login");
+                
+                // 使用JSON格式发送请求
+                const requestData = { idToken: 'test-token' };
+                console.log("Sending JSON data with test token");
+                
+                // Send the test token to your backend
+                const result = await fetch('/api/auth/google', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                
+                if (!result.ok) {
+                    const errorText = await result.text();
+                    console.error("Test authentication failed with status:", result.status);
+                    console.error("Error response:", errorText);
+                    throw new Error(`HTTP error! Status: ${result.status}, Response: ${errorText}`);
+                }
+                
+                const data = await result.json();
+                console.log("Test authentication successful:", data);
+                
+                // Store the JWT token in localStorage
+                localStorage.setItem('auth_token', data.token);
+                
+                // Display user information
+                displayUserInfo(data.user, data.token);
+            } catch (error) {
+                console.error('Test authentication error:', error);
+                alert('Test authentication failed: ' + error.message);
+            }
+        });
+    </script>
+</body>
+</html> 

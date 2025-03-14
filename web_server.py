@@ -42,7 +42,7 @@ if not api_key or api_key == "your_openai_api_key_here":
 # 检查数据库URL
 db_url = os.getenv("DATABASE_URL")
 if db_url:
-    logger.info(f"数据库URL: {db_url}")
+    logger.debug(f"数据库URL: {db_url}")
 else:
     logger.warning("未设置DATABASE_URL环境变量，将使用默认值")
 
@@ -57,6 +57,7 @@ logger.info("已添加当前目录到Python路径")
 # Import our custom modules
 from routes.rest_api import router as rest_router
 from routes.websocket_api import router as websocket_router
+from middleware import RequestLoggingMiddleware
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -75,6 +76,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 logger.info("CORS中间件已配置")
+
+# 添加请求日志中间件
+app.add_middleware(
+    RequestLoggingMiddleware,
+    exclude_paths=["/static/"]  # 排除静态文件路径
+)
+logger.info("请求日志中间件已配置")
 
 # 检查static目录是否存在
 static_dir = Path("static")

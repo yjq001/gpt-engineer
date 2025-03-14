@@ -1,8 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse
 import logging
 import os
 from dotenv import load_dotenv
+from datetime import datetime
 
 # 加载环境变量
 load_dotenv()
@@ -52,4 +53,20 @@ async def get_db_status():
         return JSONResponse(
             content={"error": f"获取数据库连接池状态时出错: {str(e)}"},
             status_code=500
-        ) 
+        )
+
+# 添加一个测试日志格式的API端点
+@router.post("/test-logging", response_model=dict)
+async def test_logging(request: Request):
+    """
+    测试日志格式的API端点
+    """
+    # 获取请求体
+    body = await request.json()
+    
+    # 返回响应
+    return {
+        "message": "日志测试成功",
+        "received_data": body,
+        "timestamp": datetime.now().isoformat()
+    } 

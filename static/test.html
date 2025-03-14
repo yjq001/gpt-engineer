@@ -26,6 +26,21 @@
         h1, h2 {
             color: #333;
         }
+        .nav-links {
+            margin-bottom: 20px;
+        }
+        .nav-links a {
+            display: inline-block;
+            margin-right: 15px;
+            padding: 8px 15px;
+            background-color: #4CAF50;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+        .nav-links a:hover {
+            background-color: #45a049;
+        }
         .form-group {
             margin-bottom: 15px;
         }
@@ -77,6 +92,11 @@
 </head>
 <body>
     <h1>API & WebSocket Test</h1>
+    
+    <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/static/google_login_test.html">Google Login Test</a>
+    </div>
     
     <div class="container">
         <!-- WebSocket Panel -->
