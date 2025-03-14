@@ -30,7 +30,7 @@ from gpt_engineer.core.ai import AI
 from gpt_engineer.core.prompt import Prompt
 from gpt_engineer.core.default.disk_memory import DiskMemory
 from gpt_engineer.core.preprompts_holder import PrepromptsHolder
-from gpt_engineer.core.default.steps import gen_code
+from gpt_engineer.core.default.steps import gen_code, improve_fn
 from gpt_engineer.core.files_dict import FilesDict
 from gpt_engineer.core.default.paths import PREPROMPTS_PATH
 
@@ -149,14 +149,42 @@ class CodeGenerator:
                 logger.error(f"加载预设提示时出错: {str(e)}")
                 return {"error": f"加载预设提示时出错: {str(e)}"}
             
-            # 生成代码
-            logger.info(f"开始为项目 {project_id} 生成代码")
-            try:
-                files_dict = gen_code(ai, prompt, memory, preprompts_holder)
-                logger.info(f"代码生成成功: {len(files_dict)} 个文件")
-            except Exception as e:
-                logger.error(f"生成代码时出错: {str(e)}")
-                return {"error": f"生成代码时出错: {str(e)}"}
+            # 检查项目目录是否已存在文件，决定是新建项目还是改进现有项目
+            existing_files = list(project_path.glob("**/*"))
+            existing_files = [f for f in existing_files if f.is_file()]
+            
+            if existing_files:
+                # 项目已存在，使用improve_fn改进现有项目
+                logger.info(f"项目 {project_id} 已存在，使用improve_fn改进现有项目")
+                
+                # 加载现有文件到FilesDict
+                files_dict = {}
+                for file_path in existing_files:
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            relative_path = file_path.relative_to(project_path)
+                            files_dict[str(relative_path)] = f.read()
+                    except UnicodeDecodeError:
+                        logger.warning(f"跳过二进制文件: {file_path}")
+                
+                files_dict = FilesDict(files_dict)
+                
+                # 使用improve_fn改进现有项目
+                try:
+                    files_dict = improve_fn(ai, prompt, files_dict, memory, preprompts_holder)
+                    logger.info(f"代码改进成功: {len(files_dict)} 个文件")
+                except Exception as e:
+                    logger.error(f"改进代码时出错: {str(e)}")
+                    return {"error": f"改进代码时出错: {str(e)}"}
+            else:
+                # 项目不存在或为空，使用gen_code生成新项目
+                logger.info(f"项目 {project_id} 不存在或为空，使用gen_code生成新项目")
+                try:
+                    files_dict = gen_code(ai, prompt, memory, preprompts_holder)
+                    logger.info(f"代码生成成功: {len(files_dict)} 个文件")
+                except Exception as e:
+                    logger.error(f"生成代码时出错: {str(e)}")
+                    return {"error": f"生成代码时出错: {str(e)}"}
             
             # 将生成的代码保存到项目目录
             try:
@@ -170,10 +198,10 @@ class CodeGenerator:
                 logger.error(f"保存文件时出错: {str(e)}")
                 return {"error": f"保存文件时出错: {str(e)}"}
             
-            logger.info(f"项目 {project_id} 代码生成完成，共 {len(files_dict)} 个文件")
+            logger.info(f"项目 {project_id} 代码处理完成，共 {len(files_dict)} 个文件")
             return files_dict
         except Exception as e:
-            logger.error(f"生成代码时出错: {str(e)}")
+            logger.error(f"处理代码时出错: {str(e)}")
             return {"error": str(e)}
 
 # 创建代码生成器实例
@@ -201,17 +229,33 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
             })
         
         # Check if project exists and send project info
+        project_exists = False
         try:
             project_path = Path(f"projects/{project_id}")
             if project_path.exists():
-                # 获取项目文件列表
-                files = [str(f.relative_to(project_path)) for f in project_path.glob("**/*") if f.is_file()]
-                await websocket.send_json({
-                    "type": "project_info",
-                    "project_id": project_id,
-                    "files": files
-                })
-                logger.debug(f"项目信息已发送: project_id={project_id}")
+                # 检查是否有文件
+                existing_files = list(project_path.glob("**/*"))
+                existing_files = [f for f in existing_files if f.is_file()]
+                
+                if existing_files:
+                    project_exists = True
+                    # 获取项目文件列表
+                    files = [str(f.relative_to(project_path)) for f in existing_files]
+                    await websocket.send_json({
+                        "type": "project_info",
+                        "project_id": project_id,
+                        "files": files,
+                        "is_existing_project": True
+                    })
+                    logger.debug(f"现有项目信息已发送: project_id={project_id}")
+                else:
+                    await websocket.send_json({
+                        "type": "project_info",
+                        "project_id": project_id,
+                        "files": [],
+                        "is_existing_project": False
+                    })
+                    logger.debug(f"空项目信息已发送: project_id={project_id}")
         except Exception as e:
             logger.error(f"获取项目信息时出错: {str(e)}")
             await websocket.send_json({
@@ -235,11 +279,18 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
                     prompt_text = message.get("content", "")
                     if prompt_text:
                         # 发送处理状态
-                        await websocket.send_json({
-                            "type": "status",
-                            "status": "processing",
-                            "message": "正在生成代码，请稍候..."
-                        })
+                        if project_exists:
+                            await websocket.send_json({
+                                "type": "status",
+                                "status": "processing",
+                                "message": "正在改进现有项目代码，请稍候..."
+                            })
+                        else:
+                            await websocket.send_json({
+                                "type": "status",
+                                "status": "processing",
+                                "message": "正在生成新项目代码，请稍候..."
+                            })
                         
                         # 异步生成代码
                         files_dict = await code_generator.generate_code(project_id, prompt_text)
@@ -258,8 +309,12 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
                                 "files": [
                                     {"path": path, "content": content}
                                     for path, content in files_dict.items()
-                                ]
+                                ],
+                                "is_improved": project_exists
                             })
+                            
+                            # 更新project_exists状态，因为现在项目肯定存在了
+                            project_exists = True
                     else:
                         await websocket.send_json({
                             "type": "error",

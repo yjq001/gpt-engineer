@@ -141,6 +141,59 @@
         .api-description li {
             margin-bottom: 5px;
         }
+        .file-list-item {
+            padding: 5px;
+            border-bottom: 1px solid #eee;
+        }
+        .file-list-item:last-child {
+            border-bottom: none;
+        }
+        .loading {
+            position: relative;
+            color: #666;
+        }
+        .loading:after {
+            content: '...';
+            position: absolute;
+            animation: dots 1.5s steps(4, end) infinite;
+            display: inline-block;
+            width: 20px;
+            text-align: left;
+        }
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60% { content: '...'; }
+            80%, 100% { content: ''; }
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .status-connected {
+            background-color: #27ae60;
+        }
+        .status-disconnected {
+            background-color: #e74c3c;
+        }
+        .status-error {
+            background-color: #f1c40f;
+        }
+        .info-message {
+            color: #333;
+            font-style: italic;
+        }
+        .success-message {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        .warning-message {
+            color: #e74c3c;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -177,7 +230,10 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="file-list">文件列表:</label>
+                    <label for="file-list">
+                        <span class="status-indicator" id="connection-status"></span>
+                        文件列表:
+                    </label>
                     <div id="file-list" class="output" style="min-height: 100px;">等待连接...</div>
                 </div>
 
@@ -191,11 +247,16 @@
                     <label for="code-output">生成的代码:</label>
                     <div id="code-output" class="output">等待生成...</div>
                 </div>
+
+                <div class="form-group">
+                    <label for="project-status">项目状态:</label>
+                    <div id="project-status" class="info-message">等待连接...</div>
+                </div>
             </div>
         </div>
 
         <!-- API 代理测试 -->
-        <div class="tab-content active" id="proxy-content">
+        <div class="tab-content" id="proxy-content">
             <div class="panel">
                 <div class="api-description">
                     <h3>API 代理接口</h3>
@@ -413,17 +474,236 @@
 
     <script>
         // 标签切换功能
+        function switchTab(tabId) {
+            // 移除所有活动标签和内容
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            // 激活当前标签和内容
+            document.querySelector(`.tab[data-tab="${tabId}"]`).classList.add('active');
+            document.getElementById(`${tabId}-content`).classList.add('active');
+        }
+
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
-                // 移除所有活动标签和内容
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                
-                // 激活当前标签和内容
-                tab.classList.add('active');
-                const tabId = tab.getAttribute('data-tab');
-                document.getElementById(`${tabId}-content`).classList.add('active');
+                switchTab(tab.getAttribute('data-tab'));
             });
+        });
+
+        // 初始化显示代码生成器标签页
+        document.addEventListener('DOMContentLoaded', () => {
+            switchTab('code-generator');
+            updateConnectionStatus('disconnected');
+        });
+
+        // 更新连接状态
+        function updateConnectionStatus(status) {
+            const statusElement = document.getElementById('connection-status');
+            statusElement.className = 'status-indicator ' + status;
+            
+            switch(status) {
+                case 'connected':
+                    statusElement.title = '已连接';
+                    break;
+                case 'disconnected':
+                    statusElement.title = '未连接';
+                    document.getElementById('project-status').innerHTML = 
+                        '<div class="info-message">等待连接...</div>';
+                    break;
+                case 'error':
+                    statusElement.title = '连接错误';
+                    document.getElementById('project-status').innerHTML = 
+                        '<div class="warning-message">连接发生错误</div>';
+                    break;
+                default:
+                    statusElement.title = '未知状态';
+            }
+        }
+
+        // 格式化文件列表显示
+        function formatFileList(files) {
+            if (!Array.isArray(files) || files.length === 0) {
+                return '暂无文件';
+            }
+            return files.map(file => 
+                `<div class="file-list-item">${file}</div>`
+            ).join('');
+        }
+
+        // WebSocket 连接函数
+        function createWebSocket(projectId) {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            return new WebSocket(`${protocol}//${window.location.host}/ws/${projectId}`);
+        }
+
+        // 代码生成器相关的WebSocket连接
+        let codeGenSocket = null;
+
+        // 连接按钮点击事件
+        document.getElementById('connect-btn').addEventListener('click', () => {
+            const projectId = document.getElementById('project-id').value;
+            if (!projectId) {
+                alert('请输入项目ID');
+                return;
+            }
+
+            // 关闭现有连接
+            if (codeGenSocket) {
+                codeGenSocket.close();
+            }
+
+            try {
+                // 创建新的WebSocket连接
+                codeGenSocket = createWebSocket(projectId);
+                
+                codeGenSocket.onopen = () => {
+                    updateConnectionStatus('connected');
+                    document.getElementById('file-list').innerHTML = 
+                        '<div class="loading">正在获取文件列表</div>';
+                    // 不需要显式请求文件列表，服务器会在连接时自动发送
+                    // 之前的代码使用了不支持的消息类型
+                    /*
+                    codeGenSocket.send(JSON.stringify({
+                        type: "get_files"
+                    }));
+                    */
+                };
+
+                codeGenSocket.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        console.log('收到WebSocket消息:', data);
+                        
+                        switch(data.type) {
+                            case 'project_info':
+                                // 处理项目信息，包括文件列表
+                                if (data.files && Array.isArray(data.files)) {
+                                    document.getElementById('file-list').innerHTML = 
+                                        formatFileList(data.files);
+                                    
+                                    // 根据is_existing_project显示不同的提示
+                                    if (data.is_existing_project) {
+                                        document.getElementById('project-status').innerHTML = 
+                                            '<div class="info-message">已连接到现有项目，可以发送提示来改进代码</div>';
+                                    } else {
+                                        document.getElementById('project-status').innerHTML = 
+                                            '<div class="info-message">已连接到新项目，可以发送提示来生成代码</div>';
+                                    }
+                                } else {
+                                    document.getElementById('file-list').textContent = '暂无文件';
+                                    document.getElementById('project-status').innerHTML = 
+                                        '<div class="info-message">已连接到新项目，可以发送提示来生成代码</div>';
+                                }
+                                break;
+                            case 'code_generated':
+                                // 处理生成的代码
+                                if (data.files && Array.isArray(data.files)) {
+                                    // 显示第一个文件的内容
+                                    if (data.files.length > 0) {
+                                        const firstFile = data.files[0];
+                                        document.getElementById('code-output').textContent = 
+                                            `// ${firstFile.path}\n\n${firstFile.content}`;
+                                        
+                                        // 更新文件列表
+                                        const fileList = data.files.map(file => file.path);
+                                        document.getElementById('file-list').innerHTML = 
+                                            formatFileList(fileList);
+                                            
+                                        // 根据is_improved显示不同的成功消息
+                                        if (data.is_improved) {
+                                            document.getElementById('project-status').innerHTML = 
+                                                '<div class="success-message">项目代码已成功改进！</div>';
+                                        } else {
+                                            document.getElementById('project-status').innerHTML = 
+                                                '<div class="success-message">新项目代码已成功生成！</div>';
+                                        }
+                                    } else {
+                                        document.getElementById('code-output').textContent = '未生成任何文件';
+                                        document.getElementById('project-status').innerHTML = 
+                                            '<div class="warning-message">未生成任何文件</div>';
+                                    }
+                                } else {
+                                    document.getElementById('code-output').textContent = '未生成任何文件';
+                                    document.getElementById('project-status').innerHTML = 
+                                        '<div class="warning-message">未生成任何文件</div>';
+                                }
+                                break;
+                            case 'file_content':
+                                // 处理文件内容
+                                document.getElementById('code-output').textContent = 
+                                    `// ${data.path}\n\n${data.content}`;
+                                break;
+                            case 'status':
+                                // 处理状态消息
+                                console.log('状态更新:', data.status, data.message);
+                                if (data.status === 'processing') {
+                                    document.getElementById('code-output').innerHTML = 
+                                        `<div class="loading">${data.message || '正在生成代码'}</div>`;
+                                }
+                                break;
+                            case 'error':
+                                alert(data.message);
+                                updateConnectionStatus('error');
+                                break;
+                            case 'warning':
+                                console.warn('警告:', data.message);
+                                break;
+                            default:
+                                console.log('收到未知类型的消息:', data);
+                        }
+                    } catch (e) {
+                        console.error('解析WebSocket消息失败:', e);
+                        document.getElementById('code-output').textContent = 
+                            '处理消息时发生错误: ' + e.message;
+                        updateConnectionStatus('error');
+                    }
+                };
+
+                codeGenSocket.onclose = (event) => {
+                    updateConnectionStatus('disconnected');
+                    document.getElementById('file-list').textContent = '连接已断开';
+                    document.getElementById('code-output').textContent = '等待生成...';
+                    document.getElementById('project-status').innerHTML = 
+                        '<div class="info-message">连接已断开</div>';
+                    console.log('WebSocket连接已关闭:', event.code, event.reason);
+                };
+
+                codeGenSocket.onerror = (error) => {
+                    console.error('WebSocket错误:', error);
+                    updateConnectionStatus('error');
+                    document.getElementById('file-list').textContent = '连接错误';
+                    document.getElementById('project-status').innerHTML = 
+                        '<div class="warning-message">连接发生错误，请检查服务器状态</div>';
+                    alert('连接发生错误，请检查服务器状态');
+                };
+            } catch (e) {
+                console.error('创建WebSocket连接失败:', e);
+                updateConnectionStatus('error');
+                alert('创建连接失败: ' + e.message);
+            }
+        });
+        
+        // 生成代码按钮点击事件
+        document.getElementById('generate-btn').addEventListener('click', () => {
+            if (!codeGenSocket || codeGenSocket.readyState !== WebSocket.OPEN) {
+                alert('请先连接到项目');
+                return;
+            }
+
+            const prompt = document.getElementById('prompt-input').value;
+            if (!prompt) {
+                alert('请输入代码生成提示');
+                return;
+            }
+
+            document.getElementById('code-output').innerHTML = 
+                '<div class="loading">正在生成代码</div>';
+            
+            // 使用正确的消息类型 "chat" 而不是 "generate_code"
+            codeGenSocket.send(JSON.stringify({
+                type: "chat",
+                content: prompt
+            }));
         });
         
         // API 代理测试
@@ -867,7 +1147,7 @@
             }
             
             // 创建新的 WebSocket 连接
-            socket = new WebSocket(`ws://${window.location.host}/ws/${projectId}`);
+            socket = createWebSocket(projectId);
             
             // 连接打开
             socket.addEventListener('open', (event) => {
@@ -940,93 +1220,6 @@
                 socket.close();
                 socket = null;
             }
-        });
-
-        // 代码生成器相关的WebSocket连接
-        let codeGenSocket = null;
-
-        // 连接按钮点击事件
-        document.getElementById('connect-btn').addEventListener('click', () => {
-            const projectId = document.getElementById('project-id').value;
-            if (!projectId) {
-                alert('请输入项目ID');
-                return;
-            }
-
-            // 关闭现有连接
-            if (codeGenSocket) {
-                codeGenSocket.close();
-            }
-
-            // 创建新的WebSocket连接
-            codeGenSocket = new WebSocket(`ws://${window.location.host}/ws/code-generator/${projectId}`);
-            
-            codeGenSocket.onopen = () => {
-                document.getElementById('file-list').textContent = '已连接，正在获取文件列表...';
-                // 请求文件列表
-                codeGenSocket.send(JSON.stringify({
-                    type: 'get_files'
-                }));
-            };
-
-            codeGenSocket.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                
-                switch(data.type) {
-                    case 'file_list':
-                        document.getElementById('file-list').textContent = 
-                            data.files.join('\n');
-                        break;
-                    case 'code_generated':
-                        document.getElementById('code-output').textContent = 
-                            data.code;
-                        break;
-                    case 'error':
-                        alert(data.message);
-                        break;
-                }
-            };
-
-            codeGenSocket.onclose = () => {
-                document.getElementById('file-list').textContent = '连接已断开';
-                document.getElementById('code-output').textContent = '等待生成...';
-            };
-
-            codeGenSocket.onerror = (error) => {
-                console.error('WebSocket错误:', error);
-                alert('连接发生错误');
-            };
-        });
-
-        // 生成代码按钮点击事件
-        document.getElementById('generate-btn').addEventListener('click', () => {
-            if (!codeGenSocket || codeGenSocket.readyState !== WebSocket.OPEN) {
-                alert('请先连接到项目');
-                return;
-            }
-
-            const prompt = document.getElementById('prompt-input').value;
-            if (!prompt) {
-                alert('请输入代码生成提示');
-                return;
-            }
-
-            document.getElementById('code-output').textContent = '正在生成代码...';
-            
-            codeGenSocket.send(JSON.stringify({
-                type: 'generate_code',
-                prompt: prompt
-            }));
-        });
-
-        // 标签切换时处理WebSocket连接
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                if (tab.dataset.tab !== 'code-generator' && codeGenSocket) {
-                    codeGenSocket.close();
-                    codeGenSocket = null;
-                }
-            });
         });
     </script>
 </body>
