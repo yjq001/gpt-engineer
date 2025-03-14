@@ -25,8 +25,14 @@ logger = logging.getLogger(__name__)
 logger.setLevel(LOG_LEVELS.get(LOG_LEVEL, logging.INFO))
 logger.debug("WebSocket API 模块初始化")
 
-# 移除对project_service的导入，因为该模块不存在
-# from services import project_service
+# 导入GPT Engineer核心组件
+from gpt_engineer.core.ai import AI
+from gpt_engineer.core.prompt import Prompt
+from gpt_engineer.core.default.disk_memory import DiskMemory
+from gpt_engineer.core.preprompts_holder import PrepromptsHolder
+from gpt_engineer.core.default.steps import gen_code
+from gpt_engineer.core.files_dict import FilesDict
+from gpt_engineer.core.default.paths import PREPROMPTS_PATH
 
 # Create router
 router = APIRouter(tags=["WebSocket API"])
@@ -91,6 +97,88 @@ class ConnectionManager:
 # Create connection manager instance
 manager = ConnectionManager()
 
+# 创建AI代码生成器
+class CodeGenerator:
+    def __init__(self):
+        self.model_name = os.getenv("MODEL_NAME", "gpt-4o")
+        self.temperature = float(os.getenv("TEMPERATURE", "0.1"))
+        self.azure_endpoint = os.getenv("AZURE_ENDPOINT", None)
+        
+        # 检查API密钥
+        self.api_key = os.getenv("OPENAI_API_KEY")
+        if not self.api_key:
+            logger.warning("未设置OPENAI_API_KEY环境变量，代码生成功能可能无法正常工作")
+        
+        # 检查模型名称
+        if "claude" in self.model_name.lower():
+            self.anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+            if not self.anthropic_key:
+                logger.warning("使用Claude模型但未设置ANTHROPIC_API_KEY环境变量，代码生成功能可能无法正常工作")
+        
+        logger.info(f"初始化代码生成器: model={self.model_name}, temperature={self.temperature}")
+        
+    async def generate_code(self, project_id: str, prompt_text: str) -> Dict[str, str]:
+        """根据提示生成代码"""
+        try:
+            # 创建项目目录
+            project_path = Path(f"projects/{project_id}")
+            project_path.mkdir(parents=True, exist_ok=True)
+            
+            # 初始化AI和内存
+            try:
+                ai = AI(
+                    model_name=self.model_name,
+                    temperature=self.temperature,
+                    azure_endpoint=self.azure_endpoint
+                )
+                logger.info(f"AI实例已创建: model={self.model_name}")
+            except Exception as e:
+                logger.error(f"创建AI实例时出错: {str(e)}")
+                return {"error": f"创建AI实例时出错: {str(e)}"}
+            
+            memory = DiskMemory(project_path)
+            
+            # 创建提示
+            prompt = Prompt(prompt_text)
+            
+            # 获取预设提示
+            try:
+                preprompts_holder = PrepromptsHolder(PREPROMPTS_PATH)
+                logger.info(f"已加载预设提示: {PREPROMPTS_PATH}")
+            except Exception as e:
+                logger.error(f"加载预设提示时出错: {str(e)}")
+                return {"error": f"加载预设提示时出错: {str(e)}"}
+            
+            # 生成代码
+            logger.info(f"开始为项目 {project_id} 生成代码")
+            try:
+                files_dict = gen_code(ai, prompt, memory, preprompts_holder)
+                logger.info(f"代码生成成功: {len(files_dict)} 个文件")
+            except Exception as e:
+                logger.error(f"生成代码时出错: {str(e)}")
+                return {"error": f"生成代码时出错: {str(e)}"}
+            
+            # 将生成的代码保存到项目目录
+            try:
+                for file_path, content in files_dict.items():
+                    full_path = project_path / file_path
+                    full_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(full_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                logger.info(f"所有文件已保存到: {project_path}")
+            except Exception as e:
+                logger.error(f"保存文件时出错: {str(e)}")
+                return {"error": f"保存文件时出错: {str(e)}"}
+            
+            logger.info(f"项目 {project_id} 代码生成完成，共 {len(files_dict)} 个文件")
+            return files_dict
+        except Exception as e:
+            logger.error(f"生成代码时出错: {str(e)}")
+            return {"error": str(e)}
+
+# 创建代码生成器实例
+code_generator = CodeGenerator()
+
 @router.websocket("/ws/{project_id}")
 async def websocket_endpoint(websocket: WebSocket, project_id: str):
     """WebSocket endpoint for real-time communication"""
@@ -105,13 +193,23 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
         })
         logger.debug(f"初始连接消息已发送: project_id={project_id}")
         
+        # 检查API密钥
+        if not os.getenv("OPENAI_API_KEY"):
+            await websocket.send_json({
+                "type": "warning",
+                "message": "警告: 未设置OPENAI_API_KEY环境变量，代码生成功能可能无法正常工作"
+            })
+        
         # Check if project exists and send project info
         try:
-            project = 1
-            if project:
+            project_path = Path(f"projects/{project_id}")
+            if project_path.exists():
+                # 获取项目文件列表
+                files = [str(f.relative_to(project_path)) for f in project_path.glob("**/*") if f.is_file()]
                 await websocket.send_json({
                     "type": "project_info",
-                    "project": project
+                    "project_id": project_id,
+                    "files": files
                 })
                 logger.debug(f"项目信息已发送: project_id={project_id}")
         except Exception as e:
@@ -126,12 +224,81 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
             data = await websocket.receive_text()
             logger.debug(f"收到客户端消息: project_id={project_id}, data={data[:100]}...")
             
-            # Process message using service
+            # 解析消息
             try:
+                message = json.loads(data)
+                message_type = message.get("type", "")
+                
+                # 处理不同类型的消息
+                if message_type == "chat":
+                    # 处理聊天消息，生成代码
+                    prompt_text = message.get("content", "")
+                    if prompt_text:
+                        # 发送处理状态
+                        await websocket.send_json({
+                            "type": "status",
+                            "status": "processing",
+                            "message": "正在生成代码，请稍候..."
+                        })
+                        
+                        # 异步生成代码
+                        files_dict = await code_generator.generate_code(project_id, prompt_text)
+                        
+                        # 检查是否有错误
+                        if "error" in files_dict:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"生成代码时出错: {files_dict['error']}"
+                            })
+                        else:
+                            # 发送生成的代码
+                            await websocket.send_json({
+                                "type": "code_generated",
+                                "project_id": project_id,
+                                "files": [
+                                    {"path": path, "content": content}
+                                    for path, content in files_dict.items()
+                                ]
+                            })
+                    else:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "聊天内容不能为空"
+                        })
+                elif message_type == "get_file":
+                    # 获取文件内容
+                    file_path = message.get("path", "")
+                    if file_path:
+                        try:
+                            full_path = Path(f"projects/{project_id}/{file_path}")
+                            if full_path.exists() and full_path.is_file():
+                                with open(full_path, "r", encoding="utf-8") as f:
+                                    content = f.read()
+                                await websocket.send_json({
+                                    "type": "file_content",
+                                    "path": file_path,
+                                    "content": content
+                                })
+                            else:
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "message": f"文件不存在: {file_path}"
+                                })
+                        except Exception as e:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"获取文件内容时出错: {str(e)}"
+                            })
+                else:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"不支持的消息类型: {message_type}"
+                    })
+            except json.JSONDecodeError:
                 await websocket.send_json({
-                "type": "error",
-                "message": f"获取项目信息时出错: {str(e)}"
-            })
+                    "type": "error",
+                    "message": "无效的JSON格式"
+                })
             except Exception as e:
                 logger.error(f"处理聊天消息时出错: {str(e)}")
                 await websocket.send_json({

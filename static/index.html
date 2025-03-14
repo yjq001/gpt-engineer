@@ -54,16 +54,46 @@
         .nav-links a:hover {
             background-color: #45a049;
         }
+        .card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .card h2 {
+            margin-top: 0;
+            color: #0066cc;
+        }
+        .btn {
+            display: inline-block;
+            background-color: #0066cc;
+            color: white;
+            padding: 10px 15px;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .btn:hover {
+            background-color: #0055aa;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>GPT-Engineer Web Interface</h1>
-        <p>Welcome to the GPT-Engineer Web Interface! This application provides a web-based interface for interacting with GPT-Engineer.</p>
+        <p>Welcome to the GPT-Engineer Web Interface!</p>
         
-        <div class="nav-links">
-            <a href="/static/test.html">API & WebSocket Test</a>
-            <a href="/static/google_login_test.html">Google Login Test</a>
+        <div class="card">
+            <h2>代码生成器</h2>
+            <p>使用AI根据自然语言描述生成代码。只需描述你想要的功能，AI将为你生成完整的代码实现。</p>
+            <a href="/static/code_generator.html" class="btn">打开代码生成器</a>
+        </div>
+        
+        <div class="card">
+            <h2>API测试</h2>
+            <p>测试REST API和WebSocket功能，查看API响应和连接状态。</p>
+            <a href="/static/test.html" class="btn">打开测试页面</a>
         </div>
     </div>
 </body>
