@@ -11,6 +11,7 @@ from google.auth.transport import requests
 from db.models import User
 from pydantic import BaseModel
 import json
+from middleware import log_request
 
 # 设置日志
 logger = logging.getLogger(__name__)
@@ -105,6 +106,7 @@ async def verify_token(token: Optional[str] = Depends(oauth2_scheme), header_tok
 
 # Google登录验证
 @router.post("/google", response_model=AuthResponse)
+@log_request
 async def google_login(request: GoogleAuthRequest):
     try:
         logger.info("开始处理Google登录请求")
@@ -249,4 +251,13 @@ async def logout(user_id: str = Depends(verify_token)):
 # 测试路由
 @router.get("/test", response_model=MessageResponse)
 async def test_auth():
-    return {"message": "认证路由正常工作"} 
+    return {"message": "认证路由正常工作"}
+
+# 获取Google客户端ID
+@router.get("/google-client-id")
+@log_request
+async def get_google_client_id():
+    """
+    获取Google客户端ID，用于前端Google登录
+    """
+    return {"clientId": GOOGLE_CLIENT_ID} 

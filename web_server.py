@@ -59,10 +59,14 @@ from routes.rest_api import router as rest_router
 from routes.websocket_api import router as websocket_router
 from middleware import RequestLoggingMiddleware
 
+# 获取CORS配置
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+logger.info(f"CORS允许的源: {CORS_ORIGINS}")
+
 # 创建FastAPI应用
 app = FastAPI(
-    title="GPT-Engineer Web Interface",
-    description="A web interface for GPT-Engineer",
+    title="GPT-Engineer API",
+    description="GPT-Engineer RESTful API",
     version="1.0.0"
 )
 logger.info("FastAPI应用已创建")
@@ -70,7 +74,7 @@ logger.info("FastAPI应用已创建")
 # 配置CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生产环境中应限制为您的前端域名
+    allow_origins=CORS_ORIGINS,  # 从环境变量获取允许的源
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,7 +86,7 @@ app.add_middleware(
     RequestLoggingMiddleware,
     exclude_paths=["/static/"]  # 排除静态文件路径
 )
-logger.info("请求日志中间件已配置")
+logger.info("请求日志中间件已配置 - 使用 @log_request 装饰器标记需要记录日志的路由")
 
 # 检查static目录是否存在
 static_dir = Path("static")

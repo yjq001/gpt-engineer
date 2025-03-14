@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>API & WebSocket Test</title>
+    <title>API 测试中心</title>
+    <!-- Google 登录 API -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -14,32 +16,50 @@
         }
         .container {
             display: flex;
-            gap: 20px;
+            flex-direction: column;
+            gap: 30px;
         }
         .panel {
-            flex: 1;
             border: 1px solid #ddd;
-            border-radius: 5px;
-            padding: 15px;
+            border-radius: 8px;
+            padding: 20px;
             background-color: #f9f9f9;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        h1, h2 {
+        h1, h2, h3 {
             color: #333;
         }
-        .nav-links {
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .tabs {
+            display: flex;
             margin-bottom: 20px;
+            border-bottom: 1px solid #ddd;
         }
-        .nav-links a {
-            display: inline-block;
-            margin-right: 15px;
-            padding: 8px 15px;
-            background-color: #4CAF50;
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            background-color: #f1f1f1;
+            border: 1px solid #ddd;
+            border-bottom: none;
+            border-radius: 5px 5px 0 0;
+            margin-right: 5px;
+        }
+        .tab.active {
+            background-color: #3498db;
             color: white;
-            text-decoration: none;
-            border-radius: 4px;
+            border-color: #3498db;
         }
-        .nav-links a:hover {
-            background-color: #45a049;
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
         }
         .form-group {
             margin-bottom: 15px;
@@ -48,107 +68,735 @@
             display: block;
             margin-bottom: 5px;
             font-weight: bold;
+            color: #2c3e50;
         }
         input, select, textarea {
             width: 100%;
-            padding: 8px;
+            padding: 10px;
             border: 1px solid #ddd;
             border-radius: 4px;
             box-sizing: border-box;
+            font-size: 14px;
         }
         button {
-            background-color: #4CAF50;
+            background-color: #3498db;
             color: white;
-            padding: 10px 15px;
+            padding: 10px 20px;
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
         }
         button:hover {
-            background-color: #45a049;
+            background-color: #2980b9;
         }
         .output {
             border: 1px solid #ddd;
             border-radius: 4px;
-            padding: 10px;
+            padding: 15px;
             background-color: #fff;
             min-height: 200px;
             max-height: 400px;
             overflow-y: auto;
             white-space: pre-wrap;
             font-family: monospace;
+            font-size: 14px;
         }
         .status {
             margin-top: 10px;
             font-weight: bold;
         }
         .connected {
-            color: green;
+            color: #27ae60;
         }
         .disconnected {
-            color: red;
+            color: #e74c3c;
+        }
+        .api-description {
+            background-color: #eaf2f8;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            border-left: 4px solid #3498db;
+        }
+        .api-description h3 {
+            margin-top: 0;
+            color: #2980b9;
+        }
+        .api-description p {
+            margin-bottom: 10px;
+        }
+        .api-description code {
+            background-color: #f7f9fa;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-family: monospace;
+            border: 1px solid #ddd;
+        }
+        .api-description ul {
+            margin-top: 10px;
+            padding-left: 20px;
+        }
+        .api-description li {
+            margin-bottom: 5px;
         }
     </style>
 </head>
 <body>
-    <h1>API & WebSocket Test</h1>
+    <h1>API 测试中心</h1>
     
-    <div class="nav-links">
-        <a href="/">Home</a>
-        <a href="/static/google_login_test.html">Google Login Test</a>
+    <div class="tabs">
+        <div class="tab active" data-tab="proxy">API 代理</div>
+        <div class="tab" data-tab="auth">Google 登录</div>
+        <div class="tab" data-tab="rest">REST API</div>
+        <div class="tab" data-tab="websocket">WebSocket</div>
     </div>
     
     <div class="container">
-        <!-- WebSocket Panel -->
-        <div class="panel">
-            <h2>WebSocket Test</h2>
-            <div class="form-group">
-                <label for="ws-project-id">Project ID:</label>
-                <input type="text" id="ws-project-id" value="test-project">
-            </div>
-            <div class="form-group">
-                <label for="ws-message">Message:</label>
-                <input type="text" id="ws-message" placeholder="Type a message...">
-            </div>
-            <div class="form-group">
-                <button id="ws-connect">Connect</button>
-                <button id="ws-send" disabled>Send</button>
-                <button id="ws-disconnect" disabled>Disconnect</button>
-            </div>
-            <div class="status disconnected" id="ws-status">Disconnected</div>
-            <div class="form-group">
-                <label for="ws-output">Output:</label>
-                <div class="output" id="ws-output"></div>
+        <!-- API 代理测试 -->
+        <div class="tab-content active" id="proxy-content">
+            <div class="panel">
+                <div class="api-description">
+                    <h3>API 代理接口</h3>
+                    <p>此接口用于解决跨域问题，可以代理转发 HTTP/HTTPS 请求到任意目标 URL。</p>
+                    <p><strong>端点：</strong> <code>/api/proxy/forward</code></p>
+                    <p><strong>支持方法：</strong> GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS</p>
+                    <p><strong>参数：</strong></p>
+                    <ul>
+                        <li><code>url</code>: 要转发的 URL (需要进行 URL 编码)</li>
+                        <li><code>method</code>: 请求方法 (默认为 GET)</li>
+                        <li>其他参数将作为查询参数传递给目标 URL</li>
+                    </ul>
+                    <p><strong>特性：</strong></p>
+                    <ul>
+                        <li>自动禁用 SSL 证书验证</li>
+                        <li>保留原始请求头和请求体</li>
+                        <li>支持所有 HTTP 方法</li>
+                    </ul>
+                </div>
+                
+                <div class="form-group">
+                    <label for="proxy-url">目标 URL:</label>
+                    <input type="text" id="proxy-url" placeholder="https://api.example.com/data" value="https://api.github.com/users/octocat">
+                </div>
+                
+                <div class="form-group">
+                    <label for="proxy-method">请求方法:</label>
+                    <select id="proxy-method">
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                        <option value="PUT">PUT</option>
+                        <option value="DELETE">DELETE</option>
+                        <option value="PATCH">PATCH</option>
+                        <option value="HEAD">HEAD</option>
+                        <option value="OPTIONS">OPTIONS</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="proxy-mode">代理模式:</label>
+                    <select id="proxy-mode">
+                        <option value="normal">标准模式</option>
+                        <option value="direct">直接模式 (绕过中间件)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="proxy-params">额外参数 (JSON 格式):</label>
+                    <textarea id="proxy-params" rows="3" placeholder='{"param1": "value1", "param2": "value2"}' value='{}'></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="proxy-body">请求体 (用于 POST/PUT/PATCH):</label>
+                    <textarea id="proxy-body" rows="5" placeholder='{"key": "value"}'></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <button id="proxy-send">发送请求</button>
+                </div>
+                
+                <div class="form-group">
+                    <label for="proxy-output">响应:</label>
+                    <div class="output" id="proxy-output">等待请求...</div>
+                </div>
             </div>
         </div>
         
-        <!-- REST API Panel -->
-        <div class="panel">
-            <h2>REST API Test</h2>
-            <div class="form-group">
-                <label for="api-endpoint">Endpoint:</label>
-                <select id="api-endpoint">
-                    <option value="/api/projects">POST /api/projects (Create Project)</option>
-                    <option value="/api/projects/{id}">GET /api/projects/{id} (Get Project)</option>
-                    <option value="/api/users/{id}">GET /api/users/{id} (Get User)</option>
-                </select>
+        <!-- Google 登录测试 -->
+        <div class="tab-content" id="auth-content">
+            <div class="panel">
+                <div class="api-description">
+                    <h3>Google 登录接口</h3>
+                    <p>此接口用于处理 Google OAuth 登录认证。</p>
+                    <p><strong>端点：</strong> <code>/api/auth/google</code></p>
+                    <p><strong>方法：</strong> POST</p>
+                    <p><strong>请求体：</strong></p>
+                    <ul>
+                        <li><code>idToken</code>: Google 认证返回的 ID 令牌</li>
+                    </ul>
+                    <p><strong>响应：</strong></p>
+                    <ul>
+                        <li>用户信息和 JWT 访问令牌</li>
+                    </ul>
+                    <p><strong>特性：</strong></p>
+                    <ul>
+                        <li>验证 Google ID 令牌</li>
+                        <li>自动创建或更新用户信息</li>
+                        <li>生成 JWT 访问令牌</li>
+                    </ul>
+                </div>
+                
+                <div id="google-login-container">
+                    <div class="form-group">
+                        <h4>使用 Google 账号登录</h4>
+                        <p>点击下方按钮使用 Google 账号登录：</p>
+                        <div id="google-signin-button"></div>
+                    </div>
+                    
+                    <div class="form-group" id="manual-token-input" style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px;">
+                        <h4>手动输入令牌</h4>
+                        <p>如果您已有 Google ID 令牌，可以在下方输入：</p>
+                        <label for="auth-token">Google ID 令牌:</label>
+                        <input type="text" id="auth-token" placeholder="输入 Google ID 令牌" value="test-token">
+                    </div>
+                    
+                    <div class="form-group">
+                        <button id="auth-login">使用令牌登录</button>
+                    </div>
+                </div>
+                
+                <div id="user-info-container" style="display: none;">
+                    <div class="form-group">
+                        <h4>用户信息</h4>
+                        <div class="user-profile">
+                            <div class="user-avatar">
+                                <img id="user-avatar" src="" alt="用户头像" style="width: 80px; height: 80px; border-radius: 50%;">
+                            </div>
+                            <div class="user-details" style="margin-top: 10px;">
+                                <p><strong>名称:</strong> <span id="user-name"></span></p>
+                                <p><strong>邮箱:</strong> <span id="user-email"></span></p>
+                                <p><strong>ID:</strong> <span id="user-id"></span></p>
+                            </div>
+                        </div>
+                        <button id="auth-logout" style="margin-top: 15px; background-color: #e74c3c;">退出登录</button>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="auth-output">响应:</label>
+                    <div class="output" id="auth-output">等待请求...</div>
+                </div>
             </div>
-            <div class="form-group">
-                <label for="api-params">Parameters:</label>
-                <textarea id="api-params" rows="5" placeholder='{"id": "user-id-here"}'></textarea>
+        </div>
+        
+        <!-- REST API 测试 -->
+        <div class="tab-content" id="rest-content">
+            <div class="panel">
+                <div class="api-description">
+                    <h3>REST API 接口</h3>
+                    <p>测试各种 REST API 端点。</p>
+                    <p><strong>可用端点：</strong></p>
+                    <ul>
+                        <li><code>/api/users/{id}</code>: 获取用户信息</li>
+                        <li><code>/api/projects</code>: 创建项目</li>
+                        <li><code>/api/projects/{id}</code>: 获取项目信息</li>
+                        <li><code>/api/status/db</code>: 获取数据库连接池状态</li>
+                    </ul>
+                </div>
+                
+                <div class="form-group">
+                    <label for="rest-endpoint">端点:</label>
+                    <select id="rest-endpoint">
+                        <option value="/api/users/{id}">GET /api/users/{id} (获取用户)</option>
+                        <option value="/api/projects">POST /api/projects (创建项目)</option>
+                        <option value="/api/projects/{id}">GET /api/projects/{id} (获取项目)</option>
+                        <option value="/api/status/db">GET /api/status/db (数据库状态)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="rest-params">参数:</label>
+                    <textarea id="rest-params" rows="5" placeholder='{"id": "user-id-here"}'></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <button id="rest-send">发送请求</button>
+                </div>
+                
+                <div class="form-group">
+                    <label for="rest-output">响应:</label>
+                    <div class="output" id="rest-output">等待请求...</div>
+                </div>
             </div>
-            <div class="form-group">
-                <button id="api-send">Send Request</button>
-            </div>
-            <div class="form-group">
-                <label for="api-output">Response:</label>
-                <div class="output" id="api-output"></div>
+        </div>
+        
+        <!-- WebSocket 测试 -->
+        <div class="tab-content" id="websocket-content">
+            <div class="panel">
+                <div class="api-description">
+                    <h3>WebSocket 接口</h3>
+                    <p>测试 WebSocket 连接和消息发送。</p>
+                    <p><strong>端点：</strong> <code>ws://{host}/ws/{project_id}</code></p>
+                    <p><strong>功能：</strong></p>
+                    <ul>
+                        <li>实时接收项目生成进度</li>
+                        <li>发送控制命令</li>
+                    </ul>
+                </div>
+                
+                <div class="form-group">
+                    <label for="ws-project-id">项目 ID:</label>
+                    <input type="text" id="ws-project-id" value="test-project">
+                </div>
+                
+                <div class="form-group">
+                    <label for="ws-message">消息:</label>
+                    <input type="text" id="ws-message" placeholder="输入消息...">
+                </div>
+                
+                <div class="form-group">
+                    <button id="ws-connect">连接</button>
+                    <button id="ws-send" disabled>发送</button>
+                    <button id="ws-disconnect" disabled>断开</button>
+                </div>
+                
+                <div class="status disconnected" id="ws-status">未连接</div>
+                
+                <div class="form-group">
+                    <label for="ws-output">输出:</label>
+                    <div class="output" id="ws-output"></div>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        // WebSocket variables
+        // 标签切换功能
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                // 移除所有活动标签和内容
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                
+                // 激活当前标签和内容
+                tab.classList.add('active');
+                const tabId = tab.getAttribute('data-tab');
+                document.getElementById(`${tabId}-content`).classList.add('active');
+            });
+        });
+        
+        // API 代理测试
+        document.getElementById('proxy-send').addEventListener('click', async function() {
+            const url = document.getElementById('proxy-url').value;
+            const method = document.getElementById('proxy-method').value;
+            const paramsInput = document.getElementById('proxy-params').value;
+            const bodyInput = document.getElementById('proxy-body').value;
+            const outputDiv = document.getElementById('proxy-output');
+            
+            // 验证 URL
+            if (!url) {
+                alert('请输入有效的 URL');
+                return;
+            }
+            
+            try {
+                // 解析额外参数
+                const extraParams = paramsInput ? JSON.parse(paramsInput) : {};
+                
+                // 构建代理 URL
+                const encodedUrl = encodeURIComponent(url);
+                const proxyMode = document.getElementById('proxy-mode').value;
+                let proxyUrl = proxyMode === 'direct' 
+                    ? `/api/proxy/direct?url=${encodedUrl}&method=${method}`
+                    : `/api/proxy/forward?url=${encodedUrl}&method=${method}`;
+                
+                // 添加额外参数
+                for (const [key, value] of Object.entries(extraParams)) {
+                    proxyUrl += `&${key}=${encodeURIComponent(value)}`;
+                }
+                
+                // 显示加载状态
+                outputDiv.textContent = '发送请求中...\n';
+                outputDiv.textContent += `请求URL: ${proxyUrl}\n`;
+                outputDiv.textContent += `请求方法: ${method}\n`;
+                if (bodyInput) {
+                    outputDiv.textContent += `请求体: ${bodyInput}\n`;
+                }
+                outputDiv.textContent += '\n等待响应...\n';
+                
+                // 准备请求选项
+                const options = {
+                    method: method === 'GET' || method === 'HEAD' ? 'GET' : 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                };
+                
+                // 添加请求体（如果需要）
+                if (method !== 'GET' && method !== 'HEAD' && bodyInput) {
+                    options.body = bodyInput;
+                }
+                
+                // 发送请求
+                try {
+                    console.log('发送请求:', proxyUrl, options);
+                    const response = await fetch(proxyUrl, options);
+                    console.log('收到响应:', response);
+                    
+                    // 获取响应头
+                    const headers = {};
+                    response.headers.forEach((value, key) => {
+                        headers[key] = value;
+                        console.log(`响应头: ${key} = ${value}`);
+                    });
+                    
+                    // 显示响应状态和头
+                    outputDiv.textContent = `状态: ${response.status} ${response.statusText}\n\n`;
+                    outputDiv.textContent += `响应头:\n${JSON.stringify(headers, null, 2)}\n\n`;
+                    
+                    // 获取响应体
+                    const contentType = response.headers.get('content-type');
+                    outputDiv.textContent += `内容类型: ${contentType || '未知'}\n\n`;
+                    
+                    try {
+                        // 根据内容类型处理响应
+                        if (contentType && contentType.includes('application/json')) {
+                            // JSON 响应
+                            console.log('处理JSON响应');
+                            const jsonData = await response.json();
+                            console.log('JSON数据:', jsonData);
+                            outputDiv.textContent += `响应体 (JSON):\n${JSON.stringify(jsonData, null, 2)}`;
+                        } else if (contentType && contentType.includes('text/')) {
+                            // 文本响应
+                            console.log('处理文本响应');
+                            const textData = await response.text();
+                            console.log('文本数据:', textData);
+                            outputDiv.textContent += `响应体 (文本):\n${textData}`;
+                        } else {
+                            // 尝试作为文本处理
+                            console.log('尝试作为文本处理响应');
+                            try {
+                                const textData = await response.text();
+                                console.log('获取到文本:', textData);
+                                
+                                // 尝试解析为 JSON
+                                try {
+                                    if (textData && textData.trim().startsWith('{')) {
+                                        console.log('尝试解析为JSON');
+                                        const jsonData = JSON.parse(textData);
+                                        console.log('解析为JSON成功:', jsonData);
+                                        outputDiv.textContent += `响应体 (解析为JSON):\n${JSON.stringify(jsonData, null, 2)}`;
+                                    } else {
+                                        console.log('不是JSON格式，显示为文本');
+                                        outputDiv.textContent += `响应体 (文本):\n${textData}`;
+                                    }
+                                } catch (e) {
+                                    console.error('JSON解析失败:', e);
+                                    outputDiv.textContent += `响应体 (文本):\n${textData}`;
+                                }
+                            } catch (e) {
+                                // 如果无法作为文本处理，则显示为二进制数据
+                                console.error('文本处理失败，尝试作为二进制数据:', e);
+                                try {
+                                    const blob = await response.blob();
+                                    console.log('获取到Blob:', blob);
+                                    outputDiv.textContent += `响应体 (二进制数据):\n大小: ${blob.size} 字节\n类型: ${blob.type}`;
+                                    
+                                    // 如果是图片，尝试显示
+                                    if (blob.type.startsWith('image/')) {
+                                        const imgUrl = URL.createObjectURL(blob);
+                                        outputDiv.innerHTML += `<br><br><img src="${imgUrl}" style="max-width: 100%;">`;
+                                    }
+                                } catch (blobError) {
+                                    console.error('Blob处理失败:', blobError);
+                                    outputDiv.textContent += `无法处理响应体: ${blobError.message}`;
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.error('解析响应体时出错:', error);
+                        outputDiv.textContent += `解析响应体时出错: ${error.message}\n`;
+                        
+                        // 尝试获取原始响应
+                        try {
+                            console.log('尝试获取原始响应作为Blob');
+                            const blob = await response.blob();
+                            console.log('获取到Blob:', blob);
+                            outputDiv.textContent += `响应体 (二进制数据):\n大小: ${blob.size} 字节\n类型: ${blob.type}`;
+                        } catch (e) {
+                            console.error('Blob处理失败:', e);
+                            outputDiv.textContent += `无法获取响应体: ${e.message}`;
+                        }
+                    }
+                } catch (error) {
+                    console.error('请求错误:', error);
+                    outputDiv.textContent = `请求错误: ${error.message}`;
+                }
+            } catch (error) {
+                outputDiv.textContent = `错误: ${error.message}`;
+            }
+        });
+        
+        // Google 登录测试
+        document.getElementById('auth-login').addEventListener('click', async function() {
+            const token = document.getElementById('auth-token').value;
+            const outputDiv = document.getElementById('auth-output');
+            
+            if (!token) {
+                alert('请输入 Google ID 令牌');
+                return;
+            }
+            
+            try {
+                outputDiv.textContent = '正在登录...';
+                
+                const response = await fetch('/api/auth/google', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ idToken: token })
+                });
+                
+                const data = await response.json();
+                outputDiv.textContent = JSON.stringify(data, null, 2);
+                
+                // 显示用户信息
+                if (data.user) {
+                    displayUserInfo(data.user, data.token);
+                }
+            } catch (error) {
+                outputDiv.textContent = `登录失败: ${error.message}`;
+            }
+        });
+        
+        // 退出登录
+        document.getElementById('auth-logout').addEventListener('click', async function() {
+            try {
+                // 获取存储的令牌
+                const token = localStorage.getItem('auth_token');
+                if (!token) {
+                    alert('您尚未登录');
+                    return;
+                }
+                
+                const response = await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                const data = await response.json();
+                document.getElementById('auth-output').textContent = JSON.stringify(data, null, 2);
+                
+                // 清除本地存储的令牌和用户信息
+                localStorage.removeItem('auth_token');
+                localStorage.removeItem('user_info');
+                
+                // 隐藏用户信息，显示登录表单
+                document.getElementById('user-info-container').style.display = 'none';
+                document.getElementById('google-login-container').style.display = 'block';
+                
+            } catch (error) {
+                document.getElementById('auth-output').textContent = `退出失败: ${error.message}`;
+            }
+        });
+        
+        // 显示用户信息
+        function displayUserInfo(user, token) {
+            // 保存令牌到本地存储
+            localStorage.setItem('auth_token', token);
+            localStorage.setItem('user_info', JSON.stringify(user));
+            
+            // 设置用户信息
+            document.getElementById('user-name').textContent = user.name || '未知';
+            document.getElementById('user-email').textContent = user.email || '未知';
+            document.getElementById('user-id').textContent = user.id || '未知';
+            
+            // 设置头像
+            if (user.picture) {
+                document.getElementById('user-avatar').src = user.picture;
+            } else {
+                document.getElementById('user-avatar').src = 'https://via.placeholder.com/80?text=用户';
+            }
+            
+            // 隐藏登录表单，显示用户信息
+            document.getElementById('google-login-container').style.display = 'none';
+            document.getElementById('user-info-container').style.display = 'block';
+        }
+        
+        // 检查是否已登录
+        function checkLoggedIn() {
+            const token = localStorage.getItem('auth_token');
+            const userInfo = localStorage.getItem('user_info');
+            
+            if (token && userInfo) {
+                try {
+                    const user = JSON.parse(userInfo);
+                    displayUserInfo(user, token);
+                    
+                    // 验证令牌有效性
+                    fetch('/api/auth/user', {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            // 令牌无效，清除本地存储
+                            localStorage.removeItem('auth_token');
+                            localStorage.removeItem('user_info');
+                            document.getElementById('user-info-container').style.display = 'none';
+                            document.getElementById('google-login-container').style.display = 'block';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('验证令牌失败:', error);
+                    });
+                } catch (e) {
+                    console.error('解析用户信息失败:', e);
+                }
+            }
+        }
+        
+        // 页面加载时检查登录状态
+        document.addEventListener('DOMContentLoaded', function() {
+            checkLoggedIn();
+            initGoogleSignIn();
+        });
+        
+        // 初始化Google登录
+        async function initGoogleSignIn() {
+            try {
+                // 从后端获取Google客户端ID
+                const response = await fetch('/api/auth/google-client-id');
+                const data = await response.json();
+                const clientId = data.clientId;
+                
+                if (!clientId) {
+                    document.getElementById('google-signin-button').innerHTML = 
+                        '<div style="color: #e74c3c; margin: 10px 0;">未配置Google客户端ID。请在服务器端设置GOOGLE_CLIENT_ID环境变量。</div>' +
+                        '<div>可以使用下方的手动输入方式测试登录功能。</div>';
+                    return;
+                }
+                
+                // 初始化 Google 登录按钮
+                if (typeof google !== 'undefined' && google.accounts) {
+                    google.accounts.id.initialize({
+                        client_id: clientId,
+                        callback: handleGoogleSignIn
+                    });
+                    google.accounts.id.renderButton(
+                        document.getElementById('google-signin-button'),
+                        { theme: 'outline', size: 'large', width: 250 }
+                    );
+                } else {
+                    // Google API 未加载，显示提示
+                    document.getElementById('google-signin-button').innerHTML = 
+                        '<div style="color: #e74c3c; margin: 10px 0;">Google 登录 API 未加载。请确保已在页面头部添加 Google API 脚本。</div>' +
+                        '<div>可以使用下方的手动输入方式测试登录功能。</div>';
+                }
+            } catch (error) {
+                console.error('获取Google客户端ID失败:', error);
+                document.getElementById('google-signin-button').innerHTML = 
+                    '<div style="color: #e74c3c; margin: 10px 0;">获取Google客户端ID失败: ' + error.message + '</div>' +
+                    '<div>可以使用下方的手动输入方式测试登录功能。</div>';
+            }
+        }
+        
+        // 处理 Google 登录回调
+        function handleGoogleSignIn(response) {
+            const idToken = response.credential;
+            document.getElementById('auth-token').value = idToken;
+            document.getElementById('auth-login').click();
+        }
+        
+        // REST API 测试
+        const restEndpointSelect = document.getElementById('rest-endpoint');
+        const restParamsTextarea = document.getElementById('rest-params');
+        const restSendBtn = document.getElementById('rest-send');
+        const restOutputDiv = document.getElementById('rest-output');
+        
+        // 设置默认参数值
+        restEndpointSelect.addEventListener('change', () => {
+            const endpoint = restEndpointSelect.value;
+            if (endpoint === '/api/users/{id}') {
+                restParamsTextarea.value = JSON.stringify({
+                    id: "1"
+                }, null, 2);
+            } else if (endpoint === '/api/projects') {
+                restParamsTextarea.value = JSON.stringify({
+                    prompt: "Create a simple hello world app",
+                    model: "gpt-4",
+                    temperature: 0.1
+                }, null, 2);
+            } else if (endpoint === '/api/projects/{id}') {
+                restParamsTextarea.value = JSON.stringify({
+                    id: "project-id-here"
+                }, null, 2);
+            } else if (endpoint === '/api/status/db') {
+                restParamsTextarea.value = '{}';
+            }
+        });
+        
+        // 触发 change 事件设置初始值
+        restEndpointSelect.dispatchEvent(new Event('change'));
+        
+        // 发送 REST API 请求
+        restSendBtn.addEventListener('click', async () => {
+            try {
+                const endpoint = restEndpointSelect.value;
+                const params = JSON.parse(restParamsTextarea.value);
+                
+                restOutputDiv.textContent = '发送请求中...';
+                
+                let url = endpoint;
+                let method = 'GET';
+                let body = null;
+                
+                // 替换 URL 中的参数
+                if (endpoint.includes('{id}')) {
+                    url = endpoint.replace('{id}', params.id);
+                }
+                
+                // 设置请求方法和请求体
+                if (endpoint === '/api/projects' && !endpoint.includes('{id}')) {
+                    method = 'POST';
+                    body = JSON.stringify(params);
+                }
+                
+                // 发送请求
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: body
+                });
+                
+                // 解析响应
+                const contentType = response.headers.get('content-type');
+                let data;
+                
+                if (contentType && contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    data = await response.text();
+                }
+                
+                // 显示响应
+                restOutputDiv.textContent = typeof data === 'object' 
+                    ? JSON.stringify(data, null, 2) 
+                    : data;
+            } catch (error) {
+                restOutputDiv.textContent = `错误: ${error.message}`;
+            }
+        });
+        
+        // WebSocket 测试
         let socket = null;
         const wsProjectIdInput = document.getElementById('ws-project-id');
         const wsMessageInput = document.getElementById('ws-message');
@@ -157,171 +805,100 @@
         const wsDisconnectBtn = document.getElementById('ws-disconnect');
         const wsStatusDiv = document.getElementById('ws-status');
         const wsOutputDiv = document.getElementById('ws-output');
-
-        // REST API variables
-        const apiEndpointSelect = document.getElementById('api-endpoint');
-        const apiParamsTextarea = document.getElementById('api-params');
-        const apiSendBtn = document.getElementById('api-send');
-        const apiOutputDiv = document.getElementById('api-output');
-
-        // Set default parameter values based on selected endpoint
-        apiEndpointSelect.addEventListener('change', () => {
-            const endpoint = apiEndpointSelect.value;
-            if (endpoint === '/api/projects') {
-                apiParamsTextarea.value = JSON.stringify({
-                    prompt: "Create a simple hello world app",
-                    model: "gpt-4",
-                    temperature: 0.1
-                }, null, 2);
-            } else if (endpoint === '/api/projects/{id}') {
-                apiParamsTextarea.value = JSON.stringify({
-                    id: "project-id-here"
-                }, null, 2);
-            } else if (endpoint === '/api/users/{id}') {
-                apiParamsTextarea.value = JSON.stringify({
-                    id: "user-id-here"
-                }, null, 2);
-            }
-        });
-
-        // Trigger change event to set initial values
-        apiEndpointSelect.dispatchEvent(new Event('change'));
-
-        // WebSocket functions
-        wsConnectBtn.addEventListener('click', () => {
-            const projectId = wsProjectIdInput.value.trim();
-            if (!projectId) {
-                alert('Please enter a project ID');
-                return;
-            }
-
-            // Close existing connection if any
-            if (socket) {
-                socket.close();
-            }
-
-            // Create new WebSocket connection
-            socket = new WebSocket(`ws://${window.location.host}/ws/${projectId}`);
-
-            // Connection opened
-            socket.addEventListener('open', (event) => {
-                wsStatusDiv.textContent = 'Connected';
-                wsStatusDiv.className = 'status connected';
-                wsConnectBtn.disabled = true;
-                wsSendBtn.disabled = false;
-                wsDisconnectBtn.disabled = false;
-                logWsMessage('Connection established');
-            });
-
-            // Listen for messages
-            socket.addEventListener('message', (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    logWsMessage(`Received: ${JSON.stringify(data, null, 2)}`);
-                } catch (e) {
-                    logWsMessage(`Received: ${event.data}`);
-                }
-            });
-
-            // Connection closed
-            socket.addEventListener('close', (event) => {
-                wsStatusDiv.textContent = 'Disconnected';
-                wsStatusDiv.className = 'status disconnected';
-                wsConnectBtn.disabled = false;
-                wsSendBtn.disabled = true;
-                wsDisconnectBtn.disabled = true;
-                logWsMessage('Connection closed');
-            });
-
-            // Connection error
-            socket.addEventListener('error', (event) => {
-                wsStatusDiv.textContent = 'Error';
-                wsStatusDiv.className = 'status disconnected';
-                logWsMessage('WebSocket error');
-            });
-        });
-
-        // Send WebSocket message
-        wsSendBtn.addEventListener('click', () => {
-            if (!socket || socket.readyState !== WebSocket.OPEN) {
-                alert('WebSocket is not connected');
-                return;
-            }
-
-            const message = wsMessageInput.value.trim();
-            if (!message) {
-                alert('Please enter a message');
-                return;
-            }
-
-            // Send as a chat message
-            const chatMessage = {
-                type: 'chat',
-                content: message
-            };
-
-            socket.send(JSON.stringify(chatMessage));
-            logWsMessage(`Sent: ${JSON.stringify(chatMessage, null, 2)}`);
-            wsMessageInput.value = '';
-        });
-
-        // Disconnect WebSocket
-        wsDisconnectBtn.addEventListener('click', () => {
-            if (socket) {
-                socket.close();
-            }
-        });
-
-        // Log WebSocket message to output div
+        
+        // 记录 WebSocket 消息
         function logWsMessage(message) {
             const timestamp = new Date().toLocaleTimeString();
             wsOutputDiv.innerHTML += `[${timestamp}] ${message}\n`;
             wsOutputDiv.scrollTop = wsOutputDiv.scrollHeight;
         }
-
-        // Send REST API request
-        apiSendBtn.addEventListener('click', async () => {
+        
+        // 连接 WebSocket
+        wsConnectBtn.addEventListener('click', () => {
+            const projectId = wsProjectIdInput.value.trim();
+            if (!projectId) {
+                alert('请输入项目 ID');
+                return;
+            }
+            
+            // 关闭现有连接
+            if (socket) {
+                socket.close();
+            }
+            
+            // 创建新的 WebSocket 连接
+            socket = new WebSocket(`ws://${window.location.host}/ws/${projectId}`);
+            
+            // 连接打开
+            socket.addEventListener('open', (event) => {
+                wsStatusDiv.textContent = '已连接';
+                wsStatusDiv.className = 'status connected';
+                wsConnectBtn.disabled = true;
+                wsSendBtn.disabled = false;
+                wsDisconnectBtn.disabled = false;
+                logWsMessage('连接已建立');
+            });
+            
+            // 接收消息
+            socket.addEventListener('message', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    logWsMessage(`收到: ${JSON.stringify(data, null, 2)}`);
+                } catch (e) {
+                    logWsMessage(`收到: ${event.data}`);
+                }
+            });
+            
+            // 连接关闭
+            socket.addEventListener('close', (event) => {
+                wsStatusDiv.textContent = '未连接';
+                wsStatusDiv.className = 'status disconnected';
+                wsConnectBtn.disabled = false;
+                wsSendBtn.disabled = true;
+                wsDisconnectBtn.disabled = true;
+                logWsMessage('连接已关闭');
+            });
+            
+            // 连接错误
+            socket.addEventListener('error', (event) => {
+                wsStatusDiv.textContent = '错误';
+                wsStatusDiv.className = 'status disconnected';
+                logWsMessage('WebSocket 错误');
+            });
+        });
+        
+        // 发送 WebSocket 消息
+        wsSendBtn.addEventListener('click', () => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                alert('WebSocket 未连接');
+                return;
+            }
+            
+            const message = wsMessageInput.value.trim();
+            if (!message) {
+                alert('请输入消息');
+                return;
+            }
+            
             try {
-                let endpoint = apiEndpointSelect.value;
-                let method = 'GET';
-                let body = null;
-
-                // Parse parameters
-                const params = JSON.parse(apiParamsTextarea.value || '{}');
-
-                // Determine method and prepare request
-                if (endpoint === '/api/projects') {
-                    method = 'POST';
-                    body = JSON.stringify({
-                        prompt: params.prompt || "Create a simple hello world app",
-                        model: params.model || "gpt-4",
-                        temperature: params.temperature || 0.1
-                    });
-                } else if (endpoint.includes('{id}')) {
-                    // Replace {id} with actual ID
-                    endpoint = endpoint.replace('{id}', params.id || 'missing-id');
-                }
-
-                // Display request details
-                apiOutputDiv.innerHTML = `Sending ${method} request to ${endpoint}...\n`;
-                if (body) {
-                    apiOutputDiv.innerHTML += `Request body: ${body}\n`;
-                }
-
-                // Send request
-                const response = await fetch(endpoint, {
-                    method,
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body
-                });
-
-                // Parse and display response
-                const data = await response.json();
-                apiOutputDiv.innerHTML += `\nResponse (${response.status} ${response.statusText}):\n${JSON.stringify(data, null, 2)}`;
-            } catch (error) {
-                apiOutputDiv.innerHTML += `\nError: ${error.message}`;
+                // 尝试解析为 JSON
+                const jsonMessage = JSON.parse(message);
+                socket.send(JSON.stringify(jsonMessage));
+                logWsMessage(`发送: ${JSON.stringify(jsonMessage, null, 2)}`);
+            } catch (e) {
+                // 作为普通文本发送
+                socket.send(message);
+                logWsMessage(`发送: ${message}`);
+            }
+            
+            wsMessageInput.value = '';
+        });
+        
+        // 断开 WebSocket 连接
+        wsDisconnectBtn.addEventListener('click', () => {
+            if (socket) {
+                socket.close();
+                socket = null;
             }
         });
     </script>
