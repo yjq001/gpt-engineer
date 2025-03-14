@@ -49,6 +49,7 @@ else:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
 
 # 添加GPT-Engineer到Python路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -93,37 +94,15 @@ static_dir = Path("static")
 if not static_dir.exists():
     logger.warning("static目录不存在，正在创建...")
     static_dir.mkdir(exist_ok=True)
-    
-    # 创建一个简单的index.html文件
-    index_html = static_dir / "index.html"
-    with open(index_html, "w") as f:
-        f.write("""<!DOCTYPE html>
-<html>
-<head>
-    <title>GPT-Engineer Web Interface</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }
-        h1 { color: #333; }
-        .container { max-width: 800px; margin: 0 auto; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>GPT-Engineer Web Interface</h1>
-        <p>Welcome to the GPT-Engineer Web Interface!</p>
-        <p>Visit <a href="/test">Test Page</a> to test the API and WebSocket functionality.</p>
-    </div>
-</body>
-</html>""")
-    
-    # 创建test.html文件如果不存在
-    test_html = static_dir / "test.html"
-    if not test_html.exists():
-        logger.warning("test.html不存在，请确保创建此文件以提供测试界面")
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 logger.info("静态文件已挂载")
+
+# Add root path redirect
+@app.get("/")
+async def root():
+    return RedirectResponse(url="/static/test.html")
 
 # Include routers
 app.include_router(rest_router)
