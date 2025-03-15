@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test Page</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .connection-status {
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .message-container {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            background-color: #fafafa;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 4px;
+        }
+        .sent {
+            background-color: #e3f2fd;
+            margin-left: 20%;
+        }
+        .received {
+            background-color: #f5f5f5;
+            margin-right: 20%;
+        }
+        .input-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            flex-grow: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .file-changes {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #fff3cd;
+            border: 1px solid #ffeeba;
+            border-radius: 4px;
+        }
+        .generation-progress {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e8f4fd;
+            border: 1px solid #b8daff;
+            border-radius: 4px;
+        }
+        .step-container {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: white;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .step-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+        .step-status {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        .status-running {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .status-completed {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status-error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .step-content {
+            font-family: monospace;
+            white-space: pre-wrap;
+            background-color: #f8f9fa;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .progress-bar {
+            height: 4px;
+            background-color: #e9ecef;
+            border-radius: 2px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background-color: #007bff;
+            transition: width 0.3s ease;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin: 5px 0;
+        }
+        .diff-added {
+            background-color: #e6ffe6;
+            color: #28a745;
+        }
+        .diff-removed {
+            background-color: #ffe6e6;
+            color: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Code Generation Test Page</h1>
+        
+        <div id="connectionStatus" class="connection-status disconnected">
+            Disconnected
+        </div>
+
+        <div class="input-container">
+            <input type="text" id="wsUrl" value="ws://localhost:8080/ws" placeholder="WebSocket URL">
+            <button id="connectBtn">Connect</button>
+            <button id="disconnectBtn" disabled>Disconnect</button>
+        </div>
+
+        <div class="generation-progress">
+            <h3>Generation Progress</h3>
+            <div class="progress-bar">
+                <div id="progressBarFill" class="progress-bar-fill" style="width: 0%"></div>
+            </div>
+            <div id="generationSteps"></div>
+        </div>
+
+        <div class="message-container" id="messageContainer"></div>
+
+        <div class="input-container">
+            <input type="text" id="messageInput" placeholder="Enter message to send" disabled>
+            <button id="sendBtn" disabled>Send</button>
+        </div>
+
+        <div class="file-changes" id="fileChanges">
+            <h3>File Changes</h3>
+            <div id="fileChangesList"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const sendBtn = document.getElementById('sendBtn');
+        const messageInput = document.getElementById('messageInput');
+        const messageContainer = document.getElementById('messageContainer');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const fileChangesList = document.getElementById('fileChangesList');
+
+        function updateConnectionStatus(connected) {
+            connectionStatus.textContent = connected ? 'Connected' : 'Disconnected';
+            connectionStatus.className = `connection-status ${connected ? 'connected' : 'disconnected'}`;
+            connectBtn.disabled = connected;
+            disconnectBtn.disabled = !connected;
+            sendBtn.disabled = !connected;
+            messageInput.disabled = !connected;
+        }
+
+        function updateGenerationProgress(message) {
+            try {
+                const data = JSON.parse(message);
+                
+                // Handle streaming messages from AI
+                if (data.type === 'stream' || data.content || data.message) {
+                    const stepsContainer = document.getElementById('generationSteps');
+                    const stepId = 'current-stream';
+                    
+                    // Try to update existing stream container or create new one
+                    let streamDiv = document.getElementById(stepId);
+                    if (!streamDiv) {
+                        streamDiv = document.createElement('div');
+                        streamDiv.id = stepId;
+                        streamDiv.className = 'step-container';
+                        streamDiv.innerHTML = `
+                            <div class="step-header">
+                                <span>AI Output</span>
+                                <span class="step-status status-running">streaming</span>
+                            </div>
+                            <div class="step-content"></div>
+                        `;
+                        stepsContainer.appendChild(streamDiv);
+                    }
+                    
+                    const content = streamDiv.querySelector('.step-content');
+                    const newContent = data.content || data.message || '';
+                    if (newContent) {
+                        content.textContent += newContent;
+                        content.scrollTop = content.scrollHeight;
+                    }
+                    
+                    // If stream ends, update status
+                    if (data.done) {
+                        const status = streamDiv.querySelector('.step-status');
+                        status.className = 'step-status status-completed';
+                        status.textContent = 'completed';
+                    }
+                    return;
+                }
+
+                // Handle file operations
+                if (data.operation === 'file') {
+                    const stepsContainer = document.getElementById('generationSteps');
+                    const stepId = `file-${Date.now()}`;
+                    const stepDiv = document.createElement('div');
+                    stepDiv.id = stepId;
+                    stepDiv.className = 'step-container';
+                    
+                    let operation = 'File Operation';
+                    let status = 'running';
+                    let content = '';
+                    
+                    if (data.action === 'create' || data.action === 'update') {
+                        operation = `Creating/Updating ${data.path || 'file'}`;
+                        content = data.content || '';
+                        status = 'completed';
+                    } else if (data.action === 'delete') {
+                        operation = `Deleting ${data.path || 'file'}`;
+                        content = `Deleted: ${data.path}`;
+                        status = 'completed';
+                    }
+                    
+                    stepDiv.innerHTML = `
+                        <div class="step-header">
+                            <span>${operation}</span>
+                            <span class="step-status status-${status}">${status}</span>
+                        </div>
+                        <div class="step-content">${content}</div>
+                    `;
+                    stepsContainer.appendChild(stepDiv);
+                    return;
+                }
+
+                // Handle errors
+                if (data.error) {
+                    const stepsContainer = document.getElementById('generationSteps');
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = 'step-container';
+                    errorDiv.innerHTML = `
+                        <div class="step-header">
+                            <span>Error Occurred</span>
+                            <span class="step-status status-error">error</span>
+                        </div>
+                        <div class="step-content" style="color: #dc3545">
+                            ${data.error}
+                        </div>
+                    `;
+                    stepsContainer.appendChild(errorDiv);
+                    return;
+                }
+
+                // Handle progress updates
+                if (typeof data.progress === 'number') {
+                    const progressBarFill = document.getElementById('progressBarFill');
+                    progressBarFill.style.width = `${data.progress}%`;
+                }
+
+                // Handle general steps or messages
+                if (data.step || data.type === 'step' || data.message) {
+                    const stepsContainer = document.getElementById('generationSteps');
+                    const stepDiv = document.createElement('div');
+                    stepDiv.className = 'step-container';
+                    
+                    const stepName = data.step || data.message || 'Processing';
+                    const status = data.error ? 'error' : (data.done ? 'completed' : 'running');
+                    
+                    stepDiv.innerHTML = `
+                        <div class="step-header">
+                            <span>${stepName}</span>
+                            <span class="step-status status-${status}">${status}</span>
+                        </div>
+                        <div class="step-content">${data.content || data.output || ''}</div>
+                    `;
+                    stepsContainer.appendChild(stepDiv);
+                }
+
+            } catch (e) {
+                console.error('Error updating generation progress:', e);
+                console.error('Original message:', message);
+            }
+        }
+
+        function addMessage(message, isSent = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
+            
+            try {
+                // Try to parse and handle the message
+                const jsonMessage = JSON.parse(message);
+                
+                // Update generation progress first
+                updateGenerationProgress(message);
+                
+                // Then display the raw message if it's not a stream
+                if (!jsonMessage.type || jsonMessage.type !== 'stream') {
+                    const pre = document.createElement('pre');
+                    pre.textContent = JSON.stringify(jsonMessage, null, 2);
+                    messageDiv.appendChild(pre);
+                    messageContainer.appendChild(messageDiv);
+                }
+            } catch {
+                // If not JSON, display as plain text
+                messageDiv.textContent = message;
+                messageContainer.appendChild(messageDiv);
+            }
+            
+            messageContainer.scrollTop = messageContainer.scrollHeight;
+        }
+
+        function updateFileChanges(changes) {
+            try {
+                const changesObj = JSON.parse(changes);
+                if (changesObj.file_changes) {
+                    const changesList = document.createElement('div');
+                    
+                    for (const file in changesObj.file_changes) {
+                        const fileDiv = document.createElement('div');
+                        fileDiv.innerHTML = `<strong>${file}</strong>`;
+                        
+                        const pre = document.createElement('pre');
+                        const changes = changesObj.file_changes[file];
+                        
+                        // Display diff with coloring
+                        const diffLines = changes.split('\n').map(line => {
+                            if (line.startsWith('+')) {
+                                return `<span class="diff-added">${line}</span>`;
+                            } else if (line.startsWith('-')) {
+                                return `<span class="diff-removed">${line}</span>`;
+                            }
+                            return line;
+                        });
+                        
+                        pre.innerHTML = diffLines.join('\n');
+                        fileDiv.appendChild(pre);
+                        changesList.appendChild(fileDiv);
+                    }
+                    
+                    fileChangesList.innerHTML = '';
+                    fileChangesList.appendChild(changesList);
+                }
+            } catch (e) {
+                console.error('Error parsing file changes:', e);
+            }
+        }
+
+        connectBtn.addEventListener('click', () => {
+            const url = document.getElementById('wsUrl').value;
+            ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                updateConnectionStatus(true);
+                addMessage('WebSocket connection established');
+            };
+
+            ws.onclose = () => {
+                updateConnectionStatus(false);
+                addMessage('WebSocket connection closed');
+                ws = null;
+            };
+
+            ws.onerror = (error) => {
+                addMessage(`WebSocket error: ${error.message}`);
+            };
+
+            ws.onmessage = (event) => {
+                addMessage(event.data);
+                updateFileChanges(event.data);
+            };
+        });
+
+        disconnectBtn.addEventListener('click', () => {
+            if (ws) {
+                ws.close();
+            }
+        });
+
+        sendBtn.addEventListener('click', () => {
+            if (ws && messageInput.value) {
+                ws.send(messageInput.value);
+                addMessage(messageInput.value, true);
+                messageInput.value = '';
+            }
+        });
+
+        messageInput.addEventListener('keypress', (event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendBtn.click();
+            }
+        });
+    </script>
+</body>
+</html> 

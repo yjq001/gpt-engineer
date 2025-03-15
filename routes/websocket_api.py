@@ -1,14 +1,18 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
 import json
 from pathlib import Path
 import asyncio
 import logging
 import os
+import re
+import difflib
 from dotenv import load_dotenv
+from langchain.callbacks.base import BaseCallbackHandler
+from gpt_engineer.core.files_dict import FilesDict
 
-# 加载环境变量
-load_dotenv()
+# 加载环境变量，强制覆盖已存在的环境变量
+load_dotenv(override=True)
 
 # 获取日志级别配置
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -306,30 +310,52 @@ class CodeGenerator:
         
         return files_to_delete
         
-    async def clarify_requirements(self, websocket: WebSocket, project_id: str, prompt_text: str):
-        """与用户进行需求澄清对话"""
+    async def clarify_requirements(self, websocket: WebSocket, project_id: str, prompt_text: str) -> List[Any]:
+        """与用户交互，澄清需求"""
         try:
+            # 创建WebSocket回调处理器
+            websocket_handler = WebSocketStreamingCallbackHandler(
+                websocket=websocket,
+                project_id=project_id,
+                manager=manager
+            )
+            
+            # 创建AI实例，添加WebSocket回调处理器
+            ai = AI(
+                model_name=self.model_name,
+                temperature=self.temperature,
+                azure_endpoint=self.azure_endpoint,
+                streaming=True  # 确保启用流式输出
+            )
+            
+            # 替换默认的回调处理器
+            llm = ai.llm
+            if hasattr(llm, 'callbacks') and llm.callbacks:
+                llm.callbacks = [websocket_handler]
+            else:
+                setattr(llm, 'callbacks', [websocket_handler])
+            
+            # 通知前端AI已准备就绪
+            await websocket.send_json({
+                "type": "ai_ready",
+                "model": self.model_name,
+                "project_id": project_id
+            })
+            
+            # 检测用户可能的语言偏好
+            preferred_languages = self._detect_language_preference(prompt_text)
+            
+            # 创建系统提示
+            system_prompt = """你是一个经验丰富的软件工程师。你的任务是帮助用户澄清他们的项目需求。
+            请提出问题，以便更好地理解用户想要构建的内容。
+            如果需求已经足够清晰，请回复"Nothing to clarify"。
+            """
+            
             # 创建项目目录
             project_path = Path(f"projects/{project_id}")
             project_path.mkdir(parents=True, exist_ok=True)
             
-            # 检查是否有语言偏好
-            preferred_languages = []
-            if "html" in prompt_text.lower() or "css" in prompt_text.lower() or "javascript" in prompt_text.lower():
-                preferred_languages = ["HTML", "CSS", "JavaScript"]
-            elif "java" in prompt_text.lower() and "script" not in prompt_text.lower():
-                preferred_languages = ["Java"]
-            elif "c++" in prompt_text.lower() or "cpp" in prompt_text.lower():
-                preferred_languages = ["C++"]
-            elif "c#" in prompt_text.lower() or "csharp" in prompt_text.lower():
-                preferred_languages = ["C#"]
-            
             # 初始化AI和内存
-            ai = AI(
-                model_name=self.model_name,
-                temperature=self.temperature,
-                azure_endpoint=self.azure_endpoint
-            )
             memory = DiskMemory(project_path)
             prompt = Prompt(prompt_text)
             
@@ -356,68 +382,100 @@ class CodeGenerator:
                 })
             
             while True:
-                messages = ai.next(messages, user_input, step_name="clarify_requirements")
-                msg = messages[-1].content.strip()
-                
-                # 检查是否完成澄清
-                if "nothing to clarify" in msg.lower():
-                    await websocket.send_json({
-                        "type": "clarify_complete",
-                        "message": msg
-                    })
-                    break
-                
-                if msg.lower().startswith("no"):
-                    await websocket.send_json({
-                        "type": "clarify_complete",
-                        "message": "没有需要澄清的内容。"
-                    })
-                    break
-                
-                # 发送AI的问题给客户端
-                await websocket.send_json({
-                    "type": "clarify_question",
-                    "message": msg
-                })
-                
-                # 等待客户端回答
-                client_response = await websocket.receive_text()
                 try:
-                    response_data = json.loads(client_response)
-                    user_input = response_data.get("content", "")
-                    
-                    # 检查用户是否跳过
-                    if not user_input or user_input.lower() == "c":
+                    messages = ai.next(messages, user_input, step_name="clarify_requirements")
+                    if not messages or len(messages) == 0:
+                        logger.error("AI返回的消息为空")
                         await websocket.send_json({
-                            "type": "clarify_info",
-                            "message": "让AI做出自己的假设并继续。"
+                            "type": "error",
+                            "message": "AI返回的消息为空"
                         })
+                        return None
                         
-                        messages = ai.next(
-                            messages,
-                            "Make your own assumptions and state them explicitly before starting",
-                            step_name="clarify_requirements"
-                        )
-                        
-                        # 发送AI的假设给客户端
+                    msg = messages[-1].content.strip()
+                    
+                    # 检查是否完成澄清
+                    if "nothing to clarify" in msg.lower():
                         await websocket.send_json({
-                            "type": "clarify_assumptions",
-                            "message": messages[-1].content.strip()
+                            "type": "clarify_complete",
+                            "message": msg
                         })
                         break
                     
-                    # 添加提示，询问是否还有其他不清楚的地方
-                    user_input += """
-                        \n\n
-                        Is anything else unclear? If yes, ask another question.\n
-                        Otherwise state: "Nothing to clarify"
-                        """
-                except json.JSONDecodeError:
+                    if msg.lower().startswith("no"):
+                        await websocket.send_json({
+                            "type": "clarify_complete",
+                            "message": "没有需要澄清的内容。"
+                        })
+                        break
+                    
+                    # 发送AI的问题给客户端
+                    await websocket.send_json({
+                        "type": "clarify_question",
+                        "message": msg
+                    })
+                    
+                    # 等待客户端回答
+                    try:
+                        client_response = await websocket.receive_text()
+                        response_data = json.loads(client_response)
+                        user_input = response_data.get("content", "")
+                        
+                        # 检查用户是否跳过
+                        if not user_input or user_input.lower() == "c":
+                            await websocket.send_json({
+                                "type": "clarify_info",
+                                "message": "让AI做出自己的假设并继续。"
+                            })
+                            
+                            messages = ai.next(
+                                messages,
+                                "Make your own assumptions and state them explicitly before starting",
+                                step_name="clarify_requirements"
+                            )
+                            
+                            if messages and len(messages) > 0:
+                                # 发送AI的假设给客户端
+                                await websocket.send_json({
+                                    "type": "clarify_assumptions",
+                                    "message": messages[-1].content.strip()
+                                })
+                                break
+                            else:
+                                logger.error("AI在生成假设时返回空消息")
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "message": "AI在生成假设时返回空消息"
+                                })
+                                return None
+                        
+                        # 添加提示，询问是否还有其他不清楚的地方
+                        user_input += """
+                            \n\n
+                            Is anything else unclear? If yes, ask another question.\n
+                            Otherwise state: "Nothing to clarify"
+                            """
+                    except json.JSONDecodeError:
+                        logger.error("无效的JSON格式")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "无效的JSON格式"
+                        })
+                        return None
+                    except Exception as e:
+                        logger.error(f"处理客户端响应时出错: {str(e)}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": f"处理客户端响应时出错: {str(e)}"
+                        })
+                        return None
+                except Exception as e:
+                    logger.error(f"AI对话过程中出错: {str(e)}")
                     await websocket.send_json({
                         "type": "error",
-                        "message": "无效的JSON格式"
+                        "message": f"AI对话过程中出错: {str(e)}"
                     })
-                    user_input = "Continue with what you have."
+                    return None
             
             # 返回澄清后的消息历史
             return messages
@@ -432,223 +490,573 @@ class CodeGenerator:
     async def generate_code(self, project_id: str, prompt_text: str, websocket: WebSocket = None, use_clarify: bool = True) -> Dict[str, str]:
         """根据提示生成代码"""
         try:
+            logger.info(f"开始生成代码: project_id={project_id}, use_clarify={use_clarify}")
+            logger.debug(f"提示文本: {prompt_text[:100]}...")
+            
             # 创建项目目录
             project_path = Path(f"projects/{project_id}")
             project_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"项目目录已创建/确认: {project_path}")
             
             # 初始化AI和内存
             try:
+                # 创建WebSocket回调处理器
+                websocket_handler = None
+                if websocket:
+                    logger.info("创建WebSocket回调处理器")
+                    websocket_handler = WebSocketStreamingCallbackHandler(
+                        websocket=websocket,
+                        project_id=project_id,
+                        manager=manager
+                    )
+                
+                # 创建AI实例，添加WebSocket回调处理器
+                logger.info(f"创建AI实例: model={self.model_name}, temperature={self.temperature}")
                 ai = AI(
                     model_name=self.model_name,
                     temperature=self.temperature,
-                    azure_endpoint=self.azure_endpoint
+                    azure_endpoint=self.azure_endpoint,
+                    streaming=True  # 确保启用流式输出
                 )
-                logger.info(f"AI实例已创建: model={self.model_name}")
+                
+                # 如果有WebSocket连接，替换默认的回调处理器
+                if websocket_handler:
+                    # 获取AI实例的llm对象
+                    llm = ai.llm
+                    logger.debug("替换AI实例的回调处理器")
+                    # 替换回调处理器
+                    if hasattr(llm, 'callbacks') and llm.callbacks:
+                        llm.callbacks = [websocket_handler]
+                    else:
+                        # 如果没有callbacks属性，尝试设置
+                        setattr(llm, 'callbacks', [websocket_handler])
+                
+                logger.info(f"AI实例已创建: model={self.model_name}, streaming={True}")
+                
+                # 通知前端AI已准备就绪
+                if websocket:
+                    await websocket.send_json({
+                        "type": "ai_ready",
+                        "model": self.model_name,
+                        "project_id": project_id
+                    })
+                    logger.debug("已通知前端AI准备就绪")
             except Exception as e:
-                logger.error(f"创建AI实例时出错: {str(e)}")
+                logger.error(f"创建AI实例时出错: {str(e)}", exc_info=True)
                 return {"error": f"创建AI实例时出错: {str(e)}"}
             
+            logger.info("初始化内存和提示")
             memory = DiskMemory(project_path)
             prompt = Prompt(prompt_text)
             
             # 获取预设提示
             try:
+                logger.debug(f"加载预设提示: {PREPROMPTS_PATH}")
                 preprompts_holder = PrepromptsHolder(PREPROMPTS_PATH)
                 logger.info(f"已加载预设提示: {PREPROMPTS_PATH}")
             except Exception as e:
-                logger.error(f"加载预设提示时出错: {str(e)}")
+                logger.error(f"加载预设提示时出错: {str(e)}", exc_info=True)
                 return {"error": f"加载预设提示时出错: {str(e)}"}
             
-            # 检查项目目录是否已存在文件，决定是新建项目还是改进现有项目
+            # 检查项目目录是否已存在文件
             try:
+                logger.info("扫描项目目录查找现有文件")
                 existing_files = list(project_path.glob("**/*"))
                 existing_files = [f for f in existing_files if f.is_file()]
+                logger.info(f"找到 {len(existing_files)} 个现有文件")
+                for f in existing_files:
+                    logger.debug(f"现有文件: {f}")
             except Exception as e:
-                logger.error(f"扫描项目文件时出错: {str(e)}")
+                logger.error(f"扫描项目文件时出错: {str(e)}", exc_info=True)
                 return {"error": f"扫描项目文件时出错: {str(e)}"}
             
-            if existing_files:
-                # 项目已存在，使用improve_fn改进现有项目
-                logger.info(f"项目 {project_id} 已存在，使用improve_fn改进现有项目")
+            # 如果启用了澄清模式且提供了websocket，先进行需求澄清
+            if use_clarify and websocket:
+                logger.info("开始需求澄清过程")
+                await websocket.send_json({
+                    "type": "status",
+                    "status": "clarifying",
+                    "message": "正在澄清需求..."
+                })
                 
-                # 如果启用了澄清模式且提供了websocket，先进行需求澄清
-                if use_clarify and websocket:
-                    clarify_messages = await self.clarify_requirements(websocket, project_id, prompt_text)
-                    if clarify_messages:
-                        # 更新提示，包含澄清的内容
-                        clarified_prompt_text = prompt_text + "\n\n--- 澄清的需求 ---\n"
-                        for msg in clarify_messages[1:]:  # 跳过系统消息
-                            if msg.type == "human":
-                                clarified_prompt_text += f"\n用户: {msg.content}"
-                            else:
-                                clarified_prompt_text += f"\nAI: {msg.content}"
-                        prompt = Prompt(clarified_prompt_text)
-                        
-                        await websocket.send_json({
-                            "type": "status",
-                            "status": "processing",
-                            "message": "需求澄清完成，正在改进现有项目代码..."
-                        })
+                clarify_messages = await self.clarify_requirements(websocket, project_id, prompt_text)
+                if clarify_messages is None:
+                    logger.error("需求澄清过程失败")
+                    return {"error": "需求澄清过程失败"}
                 
-                # 加载现有文件到FilesDict
-                files_dict = {}
-                files_dict_before = {}
-                for file_path in existing_files:
-                    try:
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            relative_path = str(file_path.relative_to(project_path)).replace("\\", "/")
-                            content = f.read()
-                            files_dict[relative_path] = content
-                            files_dict_before[relative_path] = content
-                    except UnicodeDecodeError:
-                        logger.warning(f"跳过二进制文件: {file_path}")
-                    except Exception as e:
-                        logger.error(f"读取文件时出错 {file_path}: {str(e)}")
-                        continue
+                logger.info("需求澄清完成，更新提示")
+                # 更新提示，包含澄清的内容
+                clarified_prompt_text = prompt_text + "\n\n--- 澄清的需求 ---\n"
+                for msg in clarify_messages[1:]:  # 跳过系统消息
+                    if msg.type == "human":
+                        clarified_prompt_text += f"\n用户: {msg.content}"
+                    else:
+                        clarified_prompt_text += f"\nAI: {msg.content}"
+                prompt = Prompt(clarified_prompt_text)
+                logger.debug(f"更新后的提示文本: {clarified_prompt_text[:100]}...")
                 
-                files_dict = FilesDict(files_dict)
-                files_dict_before = FilesDict(files_dict_before)
-                
-                # 使用improve_fn改进现有项目
-                try:
-                    # 如果提供了websocket，发送改进进度更新
+                await websocket.send_json({
+                    "type": "status",
+                    "status": "processing",
+                    "message": "需求澄清完成，正在生成代码..."
+                })
+            
+            try:
+                if existing_files:
+                    logger.info("处理现有项目的代码改进")
+                    # 加载现有文件到FilesDict
+                    files_dict = {}
+                    files_dict_before = {}
+                    for file_path in existing_files:
+                        try:
+                            with open(file_path, "r", encoding="utf-8") as f:
+                                relative_path = str(file_path.relative_to(project_path)).replace("\\", "/")
+                                content = f.read()
+                                files_dict[relative_path] = content
+                                files_dict_before[relative_path] = content
+                                logger.debug(f"已加载文件: {relative_path}")
+                        except Exception as e:
+                            logger.error(f"读取文件时出错 {file_path}: {str(e)}")
+                            continue
+                    
+                    # 确保files_dict是有效的FilesDict对象
+                    if not files_dict:
+                        logger.info("创建空的FilesDict")
+                        files_dict = FilesDict({})
+                    elif not isinstance(files_dict, FilesDict):
+                        logger.info("将dict转换为FilesDict")
+                        files_dict = FilesDict(files_dict)
+                    
+                    # 发送状态更新
                     if websocket:
                         await websocket.send_json({
                             "type": "status",
                             "status": "improving",
-                            "message": "正在分析现有代码并生成改进方案..."
+                            "message": "正在改进现有代码..."
                         })
                     
                     # 执行改进
+                    logger.info("开始执行代码改进")
                     files_dict = improve_fn(ai, prompt, files_dict, memory, preprompts_holder)
+                    if not files_dict:
+                        logger.error("代码改进失败: improve_fn返回None")
+                        return {"error": "代码改进失败"}
                     logger.info(f"代码改进成功: {len(files_dict)} 个文件")
+                else:
+                    logger.info("开始生成新项目代码")
+                    # 新项目，初始化空的files_dict
+                    files_dict = FilesDict({})
+                    files_dict_before = {}
                     
-                    # 处理文件变更
-                    added_files = []
-                    modified_files = []
-                    deleted_files = []
-                    
-                    # 检查新增和修改的文件
-                    for path, content in files_dict.items():
-                        # 跳过处理 /dev/null 路径，这是 Git 差异格式的一部分，不是真实文件
-                        if "/dev/null" in path or "\\dev\\null" in path:
-                            logger.warning(f"跳过处理 Git 差异格式路径: {path}")
-                            continue
-                            
-                        if path not in files_dict_before:
-                            added_files.append(path)
-                        elif files_dict_before[path] != content:
-                            modified_files.append(path)
-                    
-                    # 直接删除不再需要的文件
-                    for path in files_dict_before:
-                        if path not in files_dict:
-                            full_path = project_path / path
-                            logger.info(f"检测到需要删除的文件: {full_path}")
-                            
-                            try:
-                                # 如果文件存在，直接删除
-                                if full_path.exists():
-                                    # 先尝试清空文件内容
-                                    try:
-                                        with open(str(full_path), 'w') as f:
-                                            f.write('')
-                                        logger.info(f"已清空文件内容: {full_path}")
-                                    except Exception as e:
-                                        logger.warning(f"清空文件内容失败: {str(e)}")
-                                    
-                                    # 然后删除文件
-                                    import os
-                                    os.remove(str(full_path))
-                                    logger.info(f"成功删除文件: {full_path}")
-                                    deleted_files.append(path)
-                                else:
-                                    logger.warning(f"要删除的文件不存在: {full_path}")
-                                    deleted_files.append(path)  # 文件不存在也视为删除成功
-                            except Exception as e:
-                                logger.error(f"删除文件失败: {str(e)}")
-                    
-                    # 保存新的和修改的文件
-                    for file_path, content in files_dict.items():
-                        try:
-                            full_path = project_path / file_path
-                            full_path.parent.mkdir(parents=True, exist_ok=True)
-                            with open(full_path, "w", encoding="utf-8") as f:
-                                f.write(content)
-                            if file_path in added_files:
-                                logger.info(f"已添加新文件: {full_path}")
-                            elif file_path in modified_files:
-                                logger.info(f"已更新文件: {full_path}")
-                        except Exception as e:
-                            logger.error(f"保存文件时出错 {file_path}: {str(e)}")
-                            continue
-                    
-                    # 如果提供了websocket，发送差异报告
+                    # 发送状态更新
                     if websocket:
-                        await websocket.send_json({
-                            "type": "diff_report",
-                            "added": added_files,
-                            "modified": modified_files,
-                            "deleted": deleted_files
-                        })
-                    
-                except Exception as e:
-                    logger.error(f"改进代码时出错: {str(e)}")
-                    return {"error": f"改进代码时出错: {str(e)}"}
-            else:
-                # 项目不存在或为空，使用gen_code生成新项目
-                try:
-                    if use_clarify and websocket:
-                        # 使用澄清模式
-                        clarify_messages = await self.clarify_requirements(websocket, project_id, prompt_text)
-                        if not clarify_messages:
-                            return {"error": "需求澄清过程失败"}
-                        
-                        # 更新提示，包含澄清的内容
-                        clarified_prompt_text = prompt_text + "\n\n--- 澄清的需求 ---\n"
-                        for msg in clarify_messages[1:]:  # 跳过系统消息
-                            if msg.type == "human":
-                                clarified_prompt_text += f"\n用户: {msg.content}"
-                            else:
-                                clarified_prompt_text += f"\nAI: {msg.content}"
-                        prompt = Prompt(clarified_prompt_text)
-                        
                         await websocket.send_json({
                             "type": "status",
                             "status": "generating",
-                            "message": "需求澄清完成，正在生成代码..."
+                            "message": "正在生成新代码..."
                         })
-                        
-                        # 使用标准生成模式，但带有澄清后的提示
-                        files_dict = gen_code(ai, prompt, memory, preprompts_holder)
-                    else:
-                        # 使用标准生成模式
-                        files_dict = gen_code(ai, prompt, memory, preprompts_holder)
                     
-                    # 保存生成的代码
-                    for file_path, content in files_dict.items():
-                        try:
-                            full_path = project_path / file_path
-                            full_path.parent.mkdir(parents=True, exist_ok=True)
-                            with open(full_path, "w", encoding="utf-8") as f:
-                                f.write(content)
-                            logger.info(f"已生成文件: {full_path}")
-                        except Exception as e:
-                            logger.error(f"保存文件时出错 {file_path}: {str(e)}")
-                            continue
-                    
+                    # 执行代码生成
+                    logger.info("开始执行代码生成")
+                    files_dict = gen_code(ai, prompt, memory, preprompts_holder)
+                    if not files_dict:
+                        logger.error("代码生成失败: gen_code返回None")
+                        return {"error": "代码生成失败"}
                     logger.info(f"代码生成成功: {len(files_dict)} 个文件")
-                except Exception as e:
-                    logger.error(f"生成代码时出错: {str(e)}")
-                    return {"error": f"生成代码时出错: {str(e)}"}
-            
-            return files_dict
+                
+                # 处理文件变更并发送WebSocket通知
+                logger.info("开始处理文件变更")
+                added_files, modified_files, deleted_files = await self._process_file_changes(
+                    project_path, files_dict_before, files_dict, websocket
+                )
+                logger.info(f"文件变更处理完成: 新增={len(added_files)}, 修改={len(modified_files)}, 删除={len(deleted_files)}")
+                
+                # 发送完成通知
+                if websocket:
+                    await websocket.send_json({
+                        "type": "status",
+                        "status": "completed",
+                        "message": "代码生成完成",
+                        "stats": {
+                            "added": len(added_files),
+                            "modified": len(modified_files),
+                            "deleted": len(deleted_files),
+                            "total": len(files_dict)
+                        }
+                    })
+                
+                # 返回结果
+                return {
+                    "success": True,
+                    "message": "代码生成成功",
+                    "files": list(files_dict.keys()),
+                    "stats": {
+                        "added": len(added_files),
+                        "modified": len(modified_files),
+                        "deleted": len(deleted_files),
+                        "total": len(files_dict)
+                    }
+                }
+            except Exception as e:
+                logger.error(f"代码生成过程中出错: {str(e)}", exc_info=True)
+                if websocket:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"代码生成过程中出错: {str(e)}"
+                    })
+                return {"error": f"代码生成过程中出错: {str(e)}"}
+        
         except Exception as e:
-            logger.error(f"处理代码时出错: {str(e)}")
+            logger.error(f"生成代码时出错: {str(e)}", exc_info=True)
+            if websocket:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"生成代码时出错: {str(e)}"
+                })
             return {"error": str(e)}
+
+    def _detect_language_preference(self, prompt_text: str) -> List[str]:
+        """检测用户可能的语言偏好"""
+        preferred_languages = []
+        
+        # 检查常见的编程语言关键词
+        language_keywords = {
+            "HTML": ["html", "网页", "前端"],
+            "CSS": ["css", "样式", "前端"],
+            "JavaScript": ["javascript", "js", "前端", "nodejs", "node.js", "react", "vue", "angular"],
+            "Python": ["python", "django", "flask", "fastapi", "pytorch", "tensorflow"],
+            "Java": ["java", "spring", "android"],
+            "C++": ["c++", "cpp"],
+            "C#": ["c#", "csharp", ".net", "dotnet"],
+            "Go": ["golang", "go语言"],
+            "Rust": ["rust", "cargo"],
+            "PHP": ["php", "laravel", "wordpress"],
+            "Ruby": ["ruby", "rails"],
+            "Swift": ["swift", "ios"],
+            "Kotlin": ["kotlin", "android"],
+            "TypeScript": ["typescript", "ts"]
+        }
+        
+        prompt_lower = prompt_text.lower()
+        
+        # 检查每种语言的关键词
+        for language, keywords in language_keywords.items():
+            for keyword in keywords:
+                if keyword in prompt_lower:
+                    if language not in preferred_languages:
+                        preferred_languages.append(language)
+                    break
+        
+        # 特殊处理：如果提到"java"但不是"javascript"的上下文
+        if "java" in prompt_lower and "script" not in prompt_lower and "js" not in prompt_lower:
+            if "Java" not in preferred_languages:
+                preferred_languages.append("Java")
+        
+        return preferred_languages
+        
+    async def _process_file_changes(self, project_path: Path, files_dict_before: Dict[str, str], files_dict: Dict[str, str], websocket: WebSocket = None):
+        """处理文件变更并发送WebSocket通知"""
+        added_files = []
+        modified_files = []
+        deleted_files = []
+        
+        # 检查新增和修改的文件
+        for path, content in files_dict.items():
+            # 跳过处理 /dev/null 路径，这是 Git 差异格式的一部分，不是真实文件
+            if "/dev/null" in path or "\\dev\\null" in path:
+                logger.warning(f"跳过处理 Git 差异格式路径: {path}")
+                continue
+                
+            if path not in files_dict_before:
+                added_files.append(path)
+                # 发送文件添加通知
+                if websocket:
+                    await websocket.send_json({
+                        "type": "file_added",
+                        "file_path": path,
+                        "content": content
+                    })
+            elif files_dict_before[path] != content:
+                modified_files.append(path)
+                # 发送文件修改通知
+                if websocket:
+                    # 计算差异
+                    old_content = files_dict_before[path]
+                    diff = self._generate_diff(old_content, content, path)
+                    await websocket.send_json({
+                        "type": "file_modified",
+                        "file_path": path,
+                        "diff": diff,
+                        "content": content
+                    })
+        
+        # 检查并删除不再需要的文件
+        for path in files_dict_before:
+            if path not in files_dict:
+                # 直接尝试删除文件
+                full_path = project_path / path
+                if full_path.exists():
+                    try:
+                        logger.info(f"尝试删除文件: {full_path}")
+                        os.remove(str(full_path))
+                        logger.info(f"成功删除文件: {full_path}")
+                        deleted_files.append(path)
+                        # 发送文件删除通知
+                        if websocket:
+                            await websocket.send_json({
+                                "type": "file_deleted",
+                                "file_path": path
+                            })
+                    except Exception as e:
+                        logger.warning(f"使用os.remove删除失败: {str(e)}")
+                        try:
+                            full_path.unlink(missing_ok=True)
+                            logger.info(f"使用Path.unlink成功删除文件: {full_path}")
+                            deleted_files.append(path)
+                            # 发送文件删除通知
+                            if websocket:
+                                await websocket.send_json({
+                                    "type": "file_deleted",
+                                    "file_path": path
+                                })
+                        except Exception as e2:
+                            logger.error(f"删除文件失败: {str(e2)}")
+        
+        # 保存新的和修改的文件
+        for file_path, content in files_dict.items():
+            try:
+                full_path = project_path / file_path
+                full_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(full_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                if file_path in added_files:
+                    logger.info(f"已添加新文件: {full_path}")
+                elif file_path in modified_files:
+                    logger.info(f"已更新文件: {full_path}")
+            except Exception as e:
+                logger.error(f"保存文件时出错 {file_path}: {str(e)}")
+                # 发送错误通知
+                if websocket:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"保存文件时出错 {file_path}: {str(e)}"
+                    })
+                continue
+        
+        return added_files, modified_files, deleted_files
+    
+    def _generate_diff(self, old_content: str, new_content: str, file_path: str) -> str:
+        """生成文件差异"""
+        old_lines = old_content.splitlines()
+        new_lines = new_content.splitlines()
+        
+        diff = difflib.unified_diff(
+            old_lines,
+            new_lines,
+            fromfile=f'a/{file_path}',
+            tofile=f'b/{file_path}',
+            lineterm=''
+        )
+        
+        return '\n'.join(diff)
 
 # 创建代码生成器实例
 code_generator = CodeGenerator()
+
+# 自定义WebSocket回调处理器
+class WebSocketStreamingCallbackHandler(BaseCallbackHandler):
+    """
+    自定义回调处理器，用于捕获AI生成的流式输出并通过WebSocket发送给前端
+    """
+    
+    def __init__(self, websocket: WebSocket, project_id: str, manager: 'ConnectionManager'):
+        """初始化回调处理器"""
+        self.websocket = websocket
+        self.project_id = project_id
+        self.manager = manager
+        self.current_token_buffer = ""
+        self.current_file_buffer = {}
+        self.current_file = None
+        self.in_code_block = False
+        self.code_language = None
+        self.file_content = ""
+        self.file_path = None
+        self.step_count = 0
+        self.total_steps = 4  # 假设总共4个主要步骤
+        
+    async def on_llm_start(self, serialized: Dict[str, Any], prompts: List[str], **kwargs):
+        """LLM开始时的处理"""
+        await self.manager.send_personal_message({
+            "type": "step",
+            "step": "开始生成代码",
+            "message": "AI模型已启动，开始处理您的请求...",
+            "status": "running"
+        }, self.project_id)
+        
+        # 重置进度
+        await self.manager.send_personal_message({
+            "type": "progress",
+            "progress": 0
+        }, self.project_id)
+
+    async def on_llm_new_token(self, token: str, **kwargs):
+        """处理新的token"""
+        # 将token添加到缓冲区
+        self.current_token_buffer += token
+        
+        # 发送流式消息
+        await self.manager.send_personal_message({
+            "type": "stream",
+            "content": token,
+            "done": False
+        }, self.project_id)
+        
+        # 检测代码块的开始和结束
+        if "```" in self.current_token_buffer:
+            # 处理代码块
+            await self._process_code_blocks()
+            
+        # 检测文件路径模式
+        file_path_match = re.search(r'([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)[:：]', self.current_token_buffer)
+        if file_path_match and not self.in_code_block:
+            potential_file_path = file_path_match.group(1)
+            if self._is_valid_file_path(potential_file_path):
+                self.file_path = potential_file_path
+                self.file_content = ""
+                # 发送文件操作消息
+                await self.manager.send_personal_message({
+                    "operation": "file",
+                    "action": "create",
+                    "path": self.file_path,
+                    "status": "running"
+                }, self.project_id)
+        
+        # 更新进度
+        self.step_count += 1
+        progress = min(95, int((self.step_count / 100) * 100))  # 保留最后5%给完成步骤
+        await self.manager.send_personal_message({
+            "type": "progress",
+            "progress": progress
+        }, self.project_id)
+
+    async def on_llm_end(self, response, **kwargs):
+        """LLM响应结束时的处理"""
+        # 清空缓冲区
+        self.current_token_buffer = ""
+        
+        # 发送流式消息结束标记
+        await self.manager.send_personal_message({
+            "type": "stream",
+            "content": "",
+            "done": True
+        }, self.project_id)
+        
+        # 发送所有文件的最终版本
+        for file_path, content in self.current_file_buffer.items():
+            await self.manager.send_personal_message({
+                "operation": "file",
+                "action": "update",
+                "path": file_path,
+                "content": content,
+                "status": "completed"
+            }, self.project_id)
+        
+        # 发送完成状态
+        await self.manager.send_personal_message({
+            "type": "step",
+            "step": "代码生成完成",
+            "message": "所有文件已生成完毕",
+            "status": "completed"
+        }, self.project_id)
+        
+        # 发送100%进度
+        await self.manager.send_personal_message({
+            "progress": 100
+        }, self.project_id)
+        
+        # 清空文件缓冲区
+        self.current_file_buffer = {}
+
+    async def on_llm_error(self, error: Union[Exception, KeyboardInterrupt], **kwargs):
+        """处理LLM错误"""
+        await self.manager.send_personal_message({
+            "type": "error",
+            "message": str(error)
+        }, self.project_id)
+
+    async def _process_code_blocks(self):
+        """处理代码块"""
+        # 使用正则表达式匹配代码块
+        pattern = r"```(\w*)\n(.*?)```"
+        matches = re.findall(pattern, self.current_token_buffer, re.DOTALL)
+        
+        for lang, code in matches:
+            # 清除已处理的代码块
+            self.current_token_buffer = self.current_token_buffer.replace(f"```{lang}\n{code}```", "", 1)
+            
+            # 如果有文件路径，将代码与文件关联
+            if self.file_path:
+                # 发送文件更新消息
+                await self.manager.send_personal_message({
+                    "operation": "file",
+                    "action": "update",
+                    "path": self.file_path,
+                    "content": code,
+                    "status": "running"
+                }, self.project_id)
+                
+                # 如果有之前的文件内容，计算差异
+                if self.file_path in self.current_file_buffer:
+                    old_content = self.current_file_buffer[self.file_path]
+                    diff = self._generate_diff(old_content, code, self.file_path)
+                    
+                    # 发送文件变更消息
+                    await self.manager.send_personal_message({
+                        "operation": "file",
+                        "action": "update",
+                        "path": self.file_path,
+                        "content": code,
+                        "diff": diff,
+                        "status": "running"
+                    }, self.project_id)
+                
+                # 更新缓冲区
+                self.current_file_buffer[self.file_path] = code
+                self.file_path = None  # 重置文件路径，等待下一个文件
+            else:
+                # 没有文件路径，发送普通代码块
+                await self.manager.send_personal_message({
+                    "type": "step",
+                    "step": "生成代码片段",
+                    "content": code,
+                    "language": lang,
+                    "status": "running"
+                }, self.project_id)
+    
+    def _is_valid_file_path(self, path: str) -> bool:
+        """检查是否是有效的文件路径"""
+        # 简单检查是否包含有效的文件扩展名
+        valid_extensions = ['.py', '.js', '.html', '.css', '.txt', '.md', '.json', '.xml', 
+                           '.yml', '.yaml', '.ini', '.cfg', '.conf', '.sh', '.bat', '.ps1', 
+                           '.java', '.c', '.cpp', '.h', '.cs', '.go', '.rs', '.ts', '.jsx', 
+                           '.tsx', '.vue', '.php', '.rb', '.pl', '.swift', '.kt', '.scala']
+        
+        return any(path.endswith(ext) for ext in valid_extensions)
+    
+    def _generate_diff(self, old_content: str, new_content: str, file_path: str) -> str:
+        """生成文件差异"""
+        old_lines = old_content.splitlines()
+        new_lines = new_content.splitlines()
+        
+        diff = difflib.unified_diff(
+            old_lines,
+            new_lines,
+            fromfile=f'a/{file_path}',
+            tofile=f'b/{file_path}',
+            lineterm=''
+        )
+        
+        return '\n'.join(diff)
 
 @router.websocket("/ws/{project_id}")
 async def websocket_endpoint(websocket: WebSocket, project_id: str):

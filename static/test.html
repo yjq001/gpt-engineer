@@ -194,6 +194,72 @@
             color: #e74c3c;
             font-weight: bold;
         }
+        .generation-progress {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e8f4fd;
+            border: 1px solid #b8daff;
+            border-radius: 4px;
+        }
+        .progress-bar {
+            height: 4px;
+            background-color: #e9ecef;
+            border-radius: 2px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background-color: #007bff;
+            transition: width 0.3s ease;
+        }
+        .step-container {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: white;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .step-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+        .step-status {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        .status-running {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .status-completed {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status-error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .step-content {
+            font-family: monospace;
+            white-space: pre-wrap;
+            background-color: #f8f9fa;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .diff-added {
+            background-color: #e6ffe6;
+            color: #28a745;
+        }
+        .diff-removed {
+            background-color: #ffe6e6;
+            color: #dc3545;
+        }
     </style>
 </head>
 <body>
@@ -238,14 +304,30 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="prompt-input">输入提示:</label>
+                    <label for="prompt-input">代码生成提示:</label>
                     <textarea id="prompt-input" rows="5" placeholder="描述你想要生成的代码功能..."></textarea>
-                    <button id="generate-btn" style="margin-top: 10px;">生成代码</button>
+                </div>
+                
+                <div class="form-group">
+                    <button id="generate-btn">生成代码</button>
+                </div>
+
+                <div class="generation-progress" style="display: none;">
+                    <h3>生成进度</h3>
+                    <div class="progress-bar">
+                        <div id="progressBarFill" class="progress-bar-fill" style="width: 0%"></div>
+                    </div>
+                    <div id="generationSteps"></div>
                 </div>
 
                 <div class="form-group">
-                    <label for="code-output">生成的代码:</label>
-                    <div id="code-output" class="output">等待生成...</div>
+                    <label for="code-output">生成结果:</label>
+                    <div class="output" id="code-output">等待生成...</div>
+                </div>
+
+                <div class="file-changes">
+                    <h3>文件变更</h3>
+                    <div id="fileChangesList"></div>
                 </div>
 
                 <div class="form-group">
@@ -595,58 +677,24 @@
                                         '<div class="info-message">已连接到新项目，可以发送提示来生成代码</div>';
                                 }
                                 break;
-                            case 'code_generated':
-                                // 处理生成的代码
-                                if (data.files && Array.isArray(data.files)) {
-                                    // 显示第一个文件的内容
-                                    if (data.files.length > 0) {
-                                        const firstFile = data.files[0];
-                                        document.getElementById('code-output').textContent = 
-                                            `// ${firstFile.path}\n\n${firstFile.content}`;
-                                        
-                                        // 更新文件列表
-                                        const fileList = data.files.map(file => file.path);
-                                        document.getElementById('file-list').innerHTML = 
-                                            formatFileList(fileList);
-                                            
-                                        // 根据is_improved显示不同的成功消息
-                                        if (data.is_improved) {
-                                            document.getElementById('project-status').innerHTML = 
-                                                '<div class="success-message">项目代码已成功改进！</div>';
-                                        } else {
-                                            document.getElementById('project-status').innerHTML = 
-                                                '<div class="success-message">新项目代码已成功生成！</div>';
-                                        }
-                                    } else {
-                                        document.getElementById('code-output').textContent = '未生成任何文件';
-                                        document.getElementById('project-status').innerHTML = 
-                                            '<div class="warning-message">未生成任何文件</div>';
-                                    }
-                                } else {
-                                    document.getElementById('code-output').textContent = '未生成任何文件';
-                                    document.getElementById('project-status').innerHTML = 
-                                        '<div class="warning-message">未生成任何文件</div>';
-                                }
-                                break;
-                            case 'file_content':
-                                // 处理文件内容
-                                document.getElementById('code-output').textContent = 
-                                    `// ${data.path}\n\n${data.content}`;
-                                break;
-                            case 'status':
-                                // 处理状态消息
-                                console.log('状态更新:', data.status, data.message);
-                                if (data.status === 'processing') {
-                                    document.getElementById('code-output').innerHTML = 
-                                        `<div class="loading">${data.message || '正在生成代码'}</div>`;
-                                }
+                            case 'stream':
+                            case 'step':
+                                updateGenerationProgress(event.data);
                                 break;
                             case 'error':
-                                alert(data.message);
-                                updateConnectionStatus('error');
+                                document.getElementById('code-output').innerHTML = 
+                                    `<div class="error-message">${data.message}</div>`;
                                 break;
-                            case 'warning':
-                                console.warn('警告:', data.message);
+                            case 'file_added':
+                            case 'file_modified':
+                            case 'file_deleted':
+                                updateFileChanges(event.data);
+                                break;
+                            case 'status':
+                                if (data.status === 'completed') {
+                                    document.getElementById('code-output').innerHTML = 
+                                        '<div class="success-message">代码生成完成</div>';
+                                }
                                 break;
                             default:
                                 console.log('收到未知类型的消息:', data);
@@ -1221,6 +1269,105 @@
                 socket = null;
             }
         });
+
+        // 更新生成进度
+        function updateGenerationProgress(message) {
+            try {
+                const data = JSON.parse(message);
+                const progressDiv = document.querySelector('.generation-progress');
+                progressDiv.style.display = 'block';
+                
+                // 处理进度更新
+                if (typeof data.progress === 'number') {
+                    const progressBarFill = document.getElementById('progressBarFill');
+                    progressBarFill.style.width = `${data.progress}%`;
+                }
+
+                // 处理步骤更新
+                if (data.type === 'step' || data.step) {
+                    const stepsContainer = document.getElementById('generationSteps');
+                    const stepDiv = document.createElement('div');
+                    stepDiv.className = 'step-container';
+                    
+                    const stepName = data.step || data.message || 'Processing';
+                    const status = data.error ? 'error' : (data.status === 'completed' ? 'completed' : 'running');
+                    
+                    stepDiv.innerHTML = `
+                        <div class="step-header">
+                            <span>${stepName}</span>
+                            <span class="step-status status-${status}">${status}</span>
+                        </div>
+                        <div class="step-content">${data.content || ''}</div>
+                    `;
+                    stepsContainer.appendChild(stepDiv);
+                }
+
+                // 处理流式输出
+                if (data.type === 'stream') {
+                    const stepsContainer = document.getElementById('generationSteps');
+                    let streamDiv = document.getElementById('current-stream');
+                    
+                    if (!streamDiv) {
+                        streamDiv = document.createElement('div');
+                        streamDiv.id = 'current-stream';
+                        streamDiv.className = 'step-container';
+                        streamDiv.innerHTML = `
+                            <div class="step-header">
+                                <span>AI Output</span>
+                                <span class="step-status status-running">streaming</span>
+                            </div>
+                            <div class="step-content"></div>
+                        `;
+                        stepsContainer.appendChild(streamDiv);
+                    }
+                    
+                    const content = streamDiv.querySelector('.step-content');
+                    if (data.content) {
+                        content.textContent += data.content;
+                        content.scrollTop = content.scrollHeight;
+                    }
+                    
+                    if (data.done) {
+                        const status = streamDiv.querySelector('.step-status');
+                        status.className = 'step-status status-completed';
+                        status.textContent = 'completed';
+                    }
+                }
+            } catch (e) {
+                console.error('Error updating generation progress:', e);
+            }
+        }
+
+        // 更新文件变更
+        function updateFileChanges(message) {
+            try {
+                const data = JSON.parse(typeof message === 'string' ? message : JSON.stringify(message));
+                const fileChangesList = document.getElementById('fileChangesList');
+                
+                const changeDiv = document.createElement('div');
+                changeDiv.className = 'file-change-item';
+                
+                if (data.type === 'file_added') {
+                    changeDiv.innerHTML = `
+                        <div><strong>添加文件:</strong> ${data.file_path}</div>
+                        <pre><code>${data.content}</code></pre>
+                    `;
+                } else if (data.type === 'file_modified') {
+                    changeDiv.innerHTML = `
+                        <div><strong>修改文件:</strong> ${data.file_path}</div>
+                        <pre><code>${data.diff || data.content}</code></pre>
+                    `;
+                } else if (data.type === 'file_deleted') {
+                    changeDiv.innerHTML = `
+                        <div><strong>删除文件:</strong> ${data.file_path}</div>
+                    `;
+                }
+                
+                fileChangesList.appendChild(changeDiv);
+            } catch (e) {
+                console.error('Error updating file changes:', e);
+            }
+        }
     </script>
 </body>
 </html> 
