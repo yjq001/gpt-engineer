@@ -490,6 +490,15 @@
                         <li><code>/api/project/{project_id}/file</code>: 获取文件内容</li>
                         <li><code>/api/project/{project_id}/file_update</code>: 更新文件内容</li>
                         <li><code>/api/project/{project_id}/file_delete</code>: 删除文件</li>
+                        <li><code>/api/project/list</code>: 获取项目列表</li>
+                        <li><code>/api/project/public/recent</code>: 获取最近公开项目</li>
+                        <li><code>/api/project/{project_id}/collaborate</code>: 申请项目协作</li>
+                        <li><code>/api/project/collaborations</code>: 获取协作申请记录</li>
+                        <li><code>/api/project/collaborations/{collaboration_id}/handle</code>: 处理协作申请</li>
+                        <li><code>/api/project/{project_id}/like</code>: 项目点赞</li>
+                        <li><code>/api/order/webhook</code>: Stripe支付回调处理</li>
+                        <li><code>/api/order/list</code>: 获取用户订单列表</li>
+                        <li><code>/api/order/{order_id}</code>: 获取订单详情</li>
                     </ul>
                 </div>
                 
@@ -505,6 +514,15 @@
                         <option value="/api/project/{project_id}/file">GET /api/project/{project_id}/file?file_path=xxx (获取文件内容)</option>
                         <option value="/api/project/{project_id}/file_update">POST /api/project/{project_id}/file?file_path=xxx (更新文件内容)</option>
                         <option value="/api/project/{project_id}/file_delete">DELETE /api/project/{project_id}/file?file_path=xxx (删除文件)</option>
+                        <option value="/api/project/list">GET /api/project/list (获取项目列表)</option>
+                        <option value="/api/project/public/recent">GET /api/project/public/recent (获取最近公开项目)</option>
+                        <option value="/api/project/{project_id}/collaborate">POST /api/project/{project_id}/collaborate (申请项目协作)</option>
+                        <option value="/api/project/collaborations">GET /api/project/collaborations?user_id=xxx&record_type=xxx (获取协作申请记录)</option>
+                        <option value="/api/project/collaborations/{collaboration_id}/handle">POST /api/project/collaborations/{collaboration_id}/handle (处理协作申请)</option>
+                        <option value="/api/project/{project_id}/like">POST /api/project/{project_id}/like?user_id=xxx (项目点赞)</option>
+                        <option value="/api/order/webhook">POST /api/order/webhook (Stripe支付回调处理)</option>
+                        <option value="/api/order/list">GET /api/order/list?user_id=xxx (获取用户订单列表)</option>
+                        <option value="/api/order/{order_id}">GET /api/order/{order_id}?user_id=xxx (获取订单详情)</option>
                     </select>
                 </div>
                 
@@ -1290,6 +1308,50 @@
                     project_id: "test-project",
                     file_path: "main.py"
                 }, null, 2);
+            } else if (endpoint === '/api/project/list') {
+                restParamsTextarea.value = JSON.stringify({
+                    project_id: "test-project"
+                }, null, 2);
+            } else if (endpoint === '/api/project/public/recent') {
+                restParamsTextarea.value = JSON.stringify({
+                    project_id: "test-project"
+                }, null, 2);
+            } else if (endpoint === '/api/project/{project_id}/collaborate') {
+                restParamsTextarea.value = JSON.stringify({
+                    project_id: "test-project"
+                }, null, 2);
+            } else if (endpoint === '/api/project/collaborations') {
+                restParamsTextarea.value = JSON.stringify({
+                    user_id: "test-user",
+                    record_type: "collaboration"
+                }, null, 2);
+            } else if (endpoint === '/api/project/collaborations/{collaboration_id}/handle') {
+                restParamsTextarea.value = JSON.stringify({
+                    project_id: "test-project",
+                    collaboration_id: "test-collaboration"
+                }, null, 2);
+            } else if (endpoint === '/api/project/{project_id}/like') {
+                restParamsTextarea.value = JSON.stringify({
+                    project_id: "test-project",
+                    user_id: "test-user"
+                }, null, 2);
+            } else if (endpoint === '/api/order/webhook') {
+                restParamsTextarea.value = JSON.stringify({
+                    event: "payment.succeeded",
+                    data: {
+                        id: "test-order",
+                        amount: 1000,
+                        currency: "USD"
+                    }
+                }, null, 2);
+            } else if (endpoint === '/api/order/list') {
+                restParamsTextarea.value = JSON.stringify({
+                    user_id: "test-user"
+                }, null, 2);
+            } else if (endpoint === '/api/order/{order_id}') {
+                restParamsTextarea.value = JSON.stringify({
+                    order_id: "test-order"
+                }, null, 2);
             }
         });
         
@@ -1329,6 +1391,30 @@
                 } else if (endpoint === '/api/project/{project_id}/file_delete') {
                     url = endpoint.replace('{project_id}', params.project_id).replace('_delete', '') + `?file_path=${encodeURIComponent(params.file_path)}`;
                     method = 'DELETE';
+                } else if (endpoint === '/api/project/list') {
+                    url = endpoint;
+                } else if (endpoint === '/api/project/public/recent') {
+                    url = endpoint;
+                } else if (endpoint === '/api/project/{project_id}/collaborate') {
+                    url = endpoint.replace('{project_id}', params.project_id);
+                    method = 'POST';
+                    body = JSON.stringify(params);
+                } else if (endpoint === '/api/project/collaborations') {
+                    url = endpoint.replace('{user_id}', params.user_id).replace('{record_type}', params.record_type);
+                } else if (endpoint === '/api/project/collaborations/{collaboration_id}/handle') {
+                    url = endpoint.replace('{collaboration_id}', params.collaboration_id);
+                    method = 'POST';
+                    body = JSON.stringify(params);
+                } else if (endpoint === '/api/project/{project_id}/like') {
+                    url = endpoint.replace('{project_id}', params.project_id);
+                    method = 'POST';
+                    body = JSON.stringify(params);
+                } else if (endpoint === '/api/order/webhook') {
+                    url = endpoint;
+                } else if (endpoint === '/api/order/list') {
+                    url = endpoint.replace('{user_id}', params.user_id);
+                } else if (endpoint === '/api/order/{order_id}') {
+                    url = endpoint.replace('{order_id}', params.order_id);
                 }
                 
                 // 发送请求

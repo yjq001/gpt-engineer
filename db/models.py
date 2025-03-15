@@ -1,7 +1,8 @@
-from peewee import CharField, DateTimeField, IntegerField, BooleanField, TextField, ForeignKeyField, DecimalField, JSONField
+from peewee import CharField, DateTimeField, IntegerField, BooleanField, TextField, ForeignKeyField, DecimalField
 from db.database import BaseModel
 import datetime
 import enum
+import json
 
 class CollaborationStatus(enum.Enum):
     """合作状态枚举"""
@@ -18,10 +19,10 @@ class ProjectType(enum.Enum):
 
 class OrderStatus(enum.Enum):
     """订单状态枚举"""
-    PENDING = 'pending'      # 待支付
-    PAID = 'paid'           # 已支付
-    CANCELLED = 'cancelled'  # 已取消
-    REFUNDED = 'refunded'   # 已退款
+    PENDING = "pending"      # 待支付
+    COMPLETED = "completed"  # 支付完成
+    FAILED = "failed"       # 支付失败
+    REFUNDED = "refunded"   # 已退款
 
 class User(BaseModel):
     id = CharField(primary_key=True, max_length=32)
@@ -118,39 +119,30 @@ class ProjectCollaboration(BaseModel):
 
 class Order(BaseModel):
     """订单模型"""
-    id = CharField(primary_key=True, max_length=36)  # 订单ID
-    user = ForeignKeyField(User, backref='orders', column_name='user_id')  # 用户ID
-    amount = DecimalField(max_digits=10, decimal_places=2)  # 付款金额，最大支持8位整数，2位小数
-    status = CharField(max_length=20, default=OrderStatus.PENDING.value)  # 订单状态
-    payment_time = DateTimeField(null=True)  # 付款时间
-    created_at = DateTimeField(default=datetime.datetime.now)  # 创建时间
-    updated_at = DateTimeField(default=datetime.datetime.now)  # 更新时间
-    extra_info = JSONField(null=True)  # 其他信息，JSON格式
-
-    class Meta:
-        table_name = 'orders'  # 指定表名
-        indexes = (
-            # 创建用户ID索引，方便查询用户订单
-            (('user_id',), False),
-            # 创建状态索引，方便查询不同状态的订单
-            (('status',), False),
-        )
+    id = CharField(primary_key=True)  # UUID
+    user = ForeignKeyField(User, backref='orders')  # 用户ID
+    amount = DecimalField(decimal_places=2)  # 订单金额
+    status = CharField(choices=[s.value for s in OrderStatus])  # 订单状态
+    payment_time = DateTimeField(null=True)  # 支付时间
+    created_at = DateTimeField()  # 创建时间
+    updated_at = DateTimeField()  # 更新时间
+    extra_info = TextField(null=True)  # 额外信息（JSON格式）
 
     def to_dict(self):
         """转换为字典格式"""
         return {
-            "id": self.id,
-            "user_id": self.user.id,
-            "user_name": self.user.name,  # 添加用户名
-            "amount": float(self.amount),  # Decimal 转为 float
-            "status": self.status,
-            "payment_time": self.payment_time.isoformat() if self.payment_time else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "extra_info": self.extra_info
+            'id': self.id,
+            'user_id': self.user.id,
+            'amount': float(self.amount),
+            'status': self.status,
+            'payment_time': self.payment_time.isoformat() if self.payment_time else None,
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat(),
+            'extra_info': json.loads(self.extra_info) if self.extra_info else None
         }
 
     def save(self, *args, **kwargs):
-        """保存时自动更新更新时间"""
-        self.updated_at = datetime.datetime.now()
-        return super(Order, self).save(*args, **kwargs) 
+        """保存前处理"""
+        if isinstance(self.extra_info, dict):
+            self.extra_info = json.dumps(self.extra_info)
+        return super().save(*args, **kwargs) 
