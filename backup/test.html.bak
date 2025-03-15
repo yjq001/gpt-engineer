@@ -529,67 +529,6 @@
                 </div>
                 
                 <div class="api-description">
-                    <h4>WebSocket消息格式</h4>
-                    <p><strong>从客户端发送到服务器：</strong></p>
-                    <ul>
-                        <li><code>{"type": "chat", "content": "提示文本", "use_clarify": true}</code> - 发送生成代码的请求。<code>use_clarify</code>参数控制是否启用需求澄清（可选，默认为true）</li>
-                        <li><code>{"type": "clarify_response", "content": "用户回答"}</code> - 回复AI的澄清问题</li>
-                        <li><code>{"type": "get_file", "path": "文件路径"}</code> - 请求获取特定文件的内容</li>
-                    </ul>
-                    
-                    <p><strong>从服务器发送到客户端：</strong></p>
-                    <ul>
-                        <li><strong>连接响应：</strong>
-                            <ul>
-                                <li><code>{"type": "status", "status": "connected", "message": "WebSocket connection established"}</code> - 连接建立</li>
-                                <li><code>{"type": "project_info", "project_id": "项目ID", "files": ["文件1", "文件2"...], "is_existing_project": true/false}</code> - 项目信息</li>
-                            </ul>
-                        </li>
-                        <li><strong>AI状态：</strong>
-                            <ul>
-                                <li><code>{"type": "ai_ready", "model": "模型名称", "project_id": "项目ID"}</code> - AI模型已准备就绪</li>
-                            </ul>
-                        </li>
-                        <li><strong>状态消息：</strong>
-                            <ul>
-                                <li><code>{"type": "status", "status": "clarifying", "message": "正在澄清需求..."}</code> - 状态更新，状态可以是：clarifying/processing/improving/generating/completed</li>
-                                <li><code>{"type": "error", "message": "错误描述"}</code> - 错误信息</li>
-                                <li><code>{"type": "warning", "message": "警告信息"}</code> - 警告信息</li>
-                            </ul>
-                        </li>
-                        <li><strong>需求澄清：</strong>
-                            <ul>
-                                <li><code>{"type": "clarify_start", "message": "开始需求澄清对话，AI将询问一些问题以确保理解您的需求。"}</code> - 澄清开始</li>
-                                <li><code>{"type": "clarify_info", "message": "信息描述"}</code> - 澄清过程中的信息</li>
-                                <li><code>{"type": "clarify_question", "message": "AI提出的问题"}</code> - AI提出的澄清问题</li>
-                                <li><code>{"type": "clarify_assumptions", "message": "AI做出的假设"}</code> - AI做出的假设</li>
-                                <li><code>{"type": "clarify_complete", "message": "澄清完成信息"}</code> - 澄清完成</li>
-                            </ul>
-                        </li>
-                        <li><strong>生成进度：</strong>
-                            <ul>
-                                <li><code>{"type": "step", "step": "步骤名称", "message": "步骤描述", "status": "running/completed/error"}</code> - 代码生成步骤</li>
-                                <li><code>{"type": "progress", "progress": 50}</code> - 进度更新（0-100的整数）</li>
-                                <li><code>{"type": "stream", "content": "生成的内容片段", "done": false/true}</code> - 流式输出</li>
-                            </ul>
-                        </li>
-                        <li><strong>文件操作：</strong>
-                            <ul>
-                                <li><code>{"type": "file_added", "file_path": "文件路径", "content": "文件内容"}</code> - 文件添加</li>
-                                <li><code>{"type": "file_modified", "file_path": "文件路径", "diff": "差异内容", "content": "完整内容"}</code> - 文件修改</li>
-                                <li><code>{"type": "file_deleted", "file_path": "文件路径"}</code> - 文件删除</li>
-                                <li><code>{"type": "file_content", "path": "文件路径", "content": "文件内容"}</code> - 文件内容响应</li>
-                            </ul>
-                        </li>
-                        <li><strong>结果响应：</strong>
-                            <ul>
-                                <li><code>{"type": "code_generated", "project_id": "项目ID", "files": [{"path": "路径1", "content": "内容1"}...], "is_improved": true/false}</code> - 代码生成完成</li>
-                            </ul>
-                        </li>
-                    </ul>
-                </div>
-                
-                <div class="api-description">
                     <h4>WebSocket通信流程</h4>
                     <p><strong>新项目生成流程：</strong></p>
                     <ol>
