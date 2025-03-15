@@ -485,6 +485,11 @@
                         <li><code>/api/projects</code>: 创建项目</li>
                         <li><code>/api/projects/{id}</code>: 获取项目信息</li>
                         <li><code>/api/status/db</code>: 获取数据库连接池状态</li>
+                        <li><code>/api/project/{project_id}</code>: 获取项目信息</li>
+                        <li><code>/api/project/{project_id}/files</code>: 获取项目文件列表</li>
+                        <li><code>/api/project/{project_id}/file</code>: 获取文件内容</li>
+                        <li><code>/api/project/{project_id}/file_update</code>: 更新文件内容</li>
+                        <li><code>/api/project/{project_id}/file_delete</code>: 删除文件</li>
                     </ul>
                 </div>
                 
@@ -495,6 +500,11 @@
                         <option value="/api/projects">POST /api/projects (创建项目)</option>
                         <option value="/api/projects/{id}">GET /api/projects/{id} (获取项目)</option>
                         <option value="/api/status/db">GET /api/status/db (数据库状态)</option>
+                        <option value="/api/project/{project_id}">GET /api/project/{project_id} (获取项目信息)</option>
+                        <option value="/api/project/{project_id}/files">GET /api/project/{project_id}/files (获取项目文件列表)</option>
+                        <option value="/api/project/{project_id}/file">GET /api/project/{project_id}/file?file_path=xxx (获取文件内容)</option>
+                        <option value="/api/project/{project_id}/file_update">POST /api/project/{project_id}/file?file_path=xxx (更新文件内容)</option>
+                        <option value="/api/project/{project_id}/file_delete">DELETE /api/project/{project_id}/file?file_path=xxx (删除文件)</option>
                     </select>
                 </div>
                 
@@ -1256,6 +1266,30 @@
                 }, null, 2);
             } else if (endpoint === '/api/status/db') {
                 restParamsTextarea.value = '{}';
+            } else if (endpoint === '/api/project/{project_id}') {
+                restParamsTextarea.value = JSON.stringify({
+                    project_id: "test-project"
+                }, null, 2);
+            } else if (endpoint === '/api/project/{project_id}/files') {
+                restParamsTextarea.value = JSON.stringify({
+                    project_id: "test-project"
+                }, null, 2);
+            } else if (endpoint === '/api/project/{project_id}/file') {
+                restParamsTextarea.value = JSON.stringify({
+                    project_id: "test-project",
+                    file_path: "main.py"
+                }, null, 2);
+            } else if (endpoint === '/api/project/{project_id}/file_update') {
+                restParamsTextarea.value = JSON.stringify({
+                    project_id: "test-project",
+                    file_path: "main.py",
+                    content: "print('Hello, World!')"
+                }, null, 2);
+            } else if (endpoint === '/api/project/{project_id}/file_delete') {
+                restParamsTextarea.value = JSON.stringify({
+                    project_id: "test-project",
+                    file_path: "main.py"
+                }, null, 2);
             }
         });
         
@@ -1274,15 +1308,27 @@
                 let method = 'GET';
                 let body = null;
                 
-                // 替换 URL 中的参数
-                if (endpoint.includes('{id}')) {
+                // 替换 URL 中的参数并设置请求方法和请求体
+                if (endpoint === '/api/users/{id}') {
                     url = endpoint.replace('{id}', params.id);
-                }
-                
-                // 设置请求方法和请求体
-                if (endpoint === '/api/projects' && !endpoint.includes('{id}')) {
+                } else if (endpoint === '/api/projects' && !endpoint.includes('{id}')) {
                     method = 'POST';
                     body = JSON.stringify(params);
+                } else if (endpoint === '/api/projects/{id}') {
+                    url = endpoint.replace('{id}', params.id);
+                } else if (endpoint === '/api/project/{project_id}') {
+                    url = endpoint.replace('{project_id}', params.project_id);
+                } else if (endpoint === '/api/project/{project_id}/files') {
+                    url = endpoint.replace('{project_id}', params.project_id);
+                } else if (endpoint === '/api/project/{project_id}/file') {
+                    url = endpoint.replace('{project_id}', params.project_id) + `?file_path=${encodeURIComponent(params.file_path)}`;
+                } else if (endpoint === '/api/project/{project_id}/file_update') {
+                    url = endpoint.replace('{project_id}', params.project_id).replace('_update', '') + `?file_path=${encodeURIComponent(params.file_path)}`;
+                    method = 'POST';
+                    body = JSON.stringify({ content: params.content });
+                } else if (endpoint === '/api/project/{project_id}/file_delete') {
+                    url = endpoint.replace('{project_id}', params.project_id).replace('_delete', '') + `?file_path=${encodeURIComponent(params.file_path)}`;
+                    method = 'DELETE';
                 }
                 
                 // 发送请求

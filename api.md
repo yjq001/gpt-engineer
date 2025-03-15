@@ -135,6 +135,201 @@ GET /project/{project_id}
 
 - `200 OK`: 请求成功
 
+### 5. 获取项目信息
+
+获取项目的基本信息。
+
+**请求**:
+
+```
+GET /api/project/{project_id}
+```
+
+**参数说明**:
+
+| 参数名 | 类型 | 必填 | 默认值 | 描述 |
+|--------|------|------|--------|------|
+| project_id | string | 是 | - | 项目ID |
+
+**响应**:
+
+```json
+{
+  "project_id": "test-project",
+  "exists": true,
+  "file_count": 10
+}
+```
+
+**状态码**:
+
+- `200`: 请求成功
+- `404`: 项目不存在
+- `500`: 服务器错误
+
+### 6. 获取项目文件列表
+
+获取项目下的所有文件列表。
+
+**请求**:
+
+```
+GET /api/project/{project_id}/files
+```
+
+**参数说明**:
+
+| 参数名 | 类型 | 必填 | 默认值 | 描述 |
+|--------|------|------|--------|------|
+| project_id | string | 是 | - | 项目ID |
+
+**响应**:
+
+```json
+{
+  "project_id": "test-project",
+  "files": [
+    {
+      "path": "main.py",
+      "size": 1024,
+      "modified": 1647583267.0
+    },
+    {
+      "path": "utils/helpers.py",
+      "size": 512,
+      "modified": 1647583200.0
+    }
+  ]
+}
+```
+
+**状态码**:
+
+- `200`: 请求成功
+- `404`: 项目不存在
+- `500`: 服务器错误
+
+### 7. 获取文件内容
+
+获取项目中指定文件的内容。
+
+**请求**:
+
+```
+GET /api/project/{project_id}/file?file_path={file_path}
+```
+
+**参数说明**:
+
+| 参数名 | 类型 | 必填 | 默认值 | 描述 |
+|--------|------|------|--------|------|
+| project_id | string | 是 | - | 项目ID |
+| file_path | string | 是 | - | 文件路径，相对于项目根目录 |
+
+**响应**:
+
+```json
+{
+  "project_id": "test-project",
+  "file_path": "main.py",
+  "content": "print('Hello, World!')"
+}
+```
+
+或者对于二进制文件：
+
+```json
+{
+  "project_id": "test-project",
+  "file_path": "image.png",
+  "content": "[二进制文件，无法显示内容]",
+  "is_binary": true
+}
+```
+
+**状态码**:
+
+- `200`: 请求成功
+- `404`: 项目或文件不存在
+- `500`: 服务器错误
+
+### 8. 更新文件内容
+
+修改并保存项目中指定文件的内容。
+
+**请求**:
+
+```
+POST /api/project/{project_id}/file?file_path={file_path}
+```
+
+**请求体**:
+
+```json
+{
+  "content": "print('Hello, Updated World!')"
+}
+```
+
+**参数说明**:
+
+| 参数名 | 类型 | 必填 | 默认值 | 描述 |
+|--------|------|------|--------|------|
+| project_id | string | 是 | - | 项目ID |
+| file_path | string | 是 | - | 文件路径，相对于项目根目录 |
+| content | string | 是 | - | 新的文件内容 |
+
+**响应**:
+
+```json
+{
+  "project_id": "test-project",
+  "file_path": "main.py",
+  "status": "success",
+  "message": "文件内容已更新"
+}
+```
+
+**状态码**:
+
+- `200`: 请求成功
+- `404`: 项目不存在
+- `500`: 服务器错误
+
+### 9. 删除文件
+
+删除项目中指定的文件。
+
+**请求**:
+
+```
+DELETE /api/project/{project_id}/file?file_path={file_path}
+```
+
+**参数说明**:
+
+| 参数名 | 类型 | 必填 | 默认值 | 描述 |
+|--------|------|------|--------|------|
+| project_id | string | 是 | - | 项目ID |
+| file_path | string | 是 | - | 文件路径，相对于项目根目录 |
+
+**响应**:
+
+```json
+{
+  "project_id": "test-project",
+  "file_path": "main.py",
+  "status": "success",
+  "message": "文件已删除"
+}
+```
+
+**状态码**:
+
+- `200`: 请求成功
+- `404`: 项目或文件不存在
+- `500`: 服务器错误
+
 ## WebSocket API
 
 WebSocket接口用于实时接收代码生成过程的消息。
