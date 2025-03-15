@@ -70,18 +70,35 @@ try:
         db_host = parsed_url.hostname
         db_port = parsed_url.port or 5432
         
+        # 检查是否使用pooler端点
+        is_pooler = '-pooler' in db_host if db_host else False
+        
+        # 连接参数
+        db_params = {
+            'user': db_user,
+            'password': db_password,
+            'host': db_host,
+            'port': db_port,
+            'max_connections': DB_POOL_MAX_CONNECTIONS,
+            'stale_timeout': DB_POOL_STALE_TIMEOUT,
+            'timeout': 5,  # 连接超时时间
+            'autocommit': True  # 启用自动提交
+        }
+        
+        # 只有在非pooler端点时才设置search_path
+        if not is_pooler:
+            db_params['options'] = f'-c search_path={DB_SCHEMA}'
+            logger.info(f"使用非pooler端点，设置search_path={DB_SCHEMA}")
+        else:
+            logger.info(f"使用pooler端点，不设置search_path参数")
+            
+            # 对于pooler端点，我们需要在每次查询后执行SET search_path
+            # 这将在模型的Meta类中处理
+        
         # 使用连接池
         db = PooledPostgresqlDatabase(
             db_name,
-            user=db_user,
-            password=db_password,
-            host=db_host,
-            port=db_port,
-            options=f'-c search_path={DB_SCHEMA}',  # 设置schema
-            max_connections=DB_POOL_MAX_CONNECTIONS,
-            stale_timeout=DB_POOL_STALE_TIMEOUT,
-            timeout=5,  # 连接超时时间
-            autocommit=True  # 启用自动提交
+            **db_params
         )
         logger.info(f"PostgreSQL 连接池已创建，最大连接数: {DB_POOL_MAX_CONNECTIONS}, 自动提交: {'已启用' if getattr(db, 'autocommit', True) else '已禁用'}")
     else:
@@ -108,6 +125,24 @@ if LOG_SQL and db is not None:
 class BaseModel(Model):
     class Meta:
         database = db
+        schema = DB_SCHEMA  # 设置schema
+
+    @classmethod
+    def initialize(cls):
+        """初始化模型，设置schema"""
+        # 检查是否使用pooler端点
+        if db and hasattr(db, '_connect_kwargs') and 'host' in db._connect_kwargs:
+            db_host = db._connect_kwargs['host']
+            is_pooler = '-pooler' in db_host if db_host else False
+            
+            # 对于pooler端点，我们需要在连接后手动设置schema
+            if is_pooler and not db.is_closed():
+                try:
+                    # 手动执行SET search_path
+                    db.execute_sql(f"SET search_path TO {DB_SCHEMA}")
+                    logger.debug(f"已手动设置search_path为{DB_SCHEMA}")
+                except Exception as e:
+                    logger.error(f"设置search_path时出错: {str(e)}")
 
 # 获取数据库连接的依赖函数
 async def get_db():
@@ -117,6 +152,8 @@ async def get_db():
             logger.debug("数据库连接已关闭，尝试重新连接")
             db.connect()
             logger.debug("数据库连接已打开")
+            # 初始化模型
+            BaseModel.initialize()
         else:
             logger.debug("数据库连接已存在")
         yield
