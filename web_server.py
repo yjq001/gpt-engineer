@@ -112,5 +112,26 @@ logger.info("路由已注册")
 # Main entry point
 if __name__ == "__main__":
     import uvicorn
+    
+    # 检查命令行参数
+    no_reload = "--no-reload" in sys.argv
+    
     logger.info("启动 Web 服务器...")
-    uvicorn.run("web_server:app", host="0.0.0.0", port=8000, reload=True) 
+    
+    if no_reload:
+        # 不使用热重载模式
+        logger.info("以无热重载模式启动服务器")
+        uvicorn.run("web_server:app", host="0.0.0.0", port=8000, reload=False)
+    else:
+        # 使用热重载模式，但排除projects目录
+        logger.info("以热重载模式启动服务器，排除projects目录")
+        
+        # 使用相对路径模式
+        uvicorn.run(
+            "web_server:app",
+            host="0.0.0.0",
+            port=8000,
+            reload=True,
+            reload_dirs=["routes", "static", "middleware", "db", "gpt_engineer"],  # 使用相对路径
+            reload_excludes=["projects", "projects/*"]  # 使用相对路径
+        ) 
